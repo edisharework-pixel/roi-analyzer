@@ -100,6 +100,34 @@ const decodeProducts=raw=>raw.map((p) => { const c=0.108,r=p[9],uc=p[5],a=p[10],
 const PRODUCTS_DATA=decodeProducts(_PRODUCTS_OLD);
 const AppCtx=createContext();
 const useApp=()=>useContext(AppCtx);
+const callAI = async (prompt, maxTokens = 1024) => {
+  const provider = localStorage.getItem("roi_ai_provider") || "anthropic";
+  if (provider === "gemini") {
+    const key = (localStorage.getItem("roi_gemini_apikey") || "").trim();
+    if (!key) throw new Error("Gemini API 키가 설정되지 않았습니다.\n\n좌측 하단 ⚙ 설정 > Gemini API 키를 입력해주세요.");
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: maxTokens } }),
+    });
+    if (!res.ok) { const err = await res.text(); throw new Error("Gemini API 오류: " + res.status + " " + err.slice(0, 200)); }
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const usage = data.usageMetadata || {};
+    return { text, usage: { input_tokens: usage.promptTokenCount || 0, output_tokens: usage.candidatesTokenCount || 0 } };
+  } else {
+    const key = (localStorage.getItem("roi_ai_apikey") || "").trim();
+    if (!key) throw new Error("Anthropic API 키가 설정되지 않았습니다.\n\n좌측 하단 ⚙ 설정 > Anthropic API 키를 입력해주세요.");
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+    });
+    if (!res.ok) { const err = await res.text(); throw new Error("Anthropic API 오류: " + res.status + " " + err.slice(0, 200)); }
+    const data = await res.json();
+    return { text: data.content[0].text, usage: data.usage || {} };
+  }
+};
 const STATUS_COLOR={
   "확대":{bg:"#ECFDF5",text:"#059669",border:"#A7F3D0",dot:"#10B981"},
   "유지":{bg:"#FFFBEB",text:"#D97706",border:"#FDE68A",dot:"#F59E0B"},
@@ -743,12 +771,7 @@ const [periodDays, setPeriodDays] = useState(180);  const [channelMode, setChann
       const preview = lines.slice(0, 20).join("\n");
       const periodStart = startDate.toISOString().slice(0, 10);
       const periodEnd = endDate.toISOString().slice(0, 10);
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": storedKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 2048,
-          messages: [{ role: "user", content: `이 CSV/엑셀 데이터를 분석하여 매출 정보를 추출해주세요.
+      const aiRes = await callAI(`이 CSV/엑셀 데이터를 분석하여 매출 정보를 추출해주세요.
 
 분석 기간: ${periodStart} ~ ${periodEnd}
 현재 상품명: "${p.name}"
@@ -777,12 +800,8 @@ ${preview}
   "periodFiltered": true/false (기간필터링 적용여부),
   "dataRows": 분석된행수(숫자),
   "summary": "한줄 요약"
-}` }],
-        }),
-      });
-      if (!res.ok) throw new Error("API 오류: " + res.status);
-      const data = await res.json();
-      const jsonMatch = data.content[0].text.match(/\{[\s\S]*\}/);
+}`, 2048);
+      const jsonMatch = aiRes.text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("AI 응답에서 JSON을 찾을 수 없습니다");
       const result = JSON.parse(jsonMatch[0]);
       result.tokenUsage = data.usage ? { input: data.usage.input_tokens || 0, output: data.usage.output_tokens || 0 } : null;
@@ -874,16 +893,9 @@ ${preview}
     }
 
     // 2. 저장된 규칙 없음 → AI로 분석
-    const storedApiKey = localStorage.getItem("roi_ai_apikey") || "";
-    if (!storedApiKey) { alert("첫 업로드는 AI가 CSV를 분석합니다.\n\n설정 방법:\n1. 좌측 메뉴 'AI 투자 의견' 클릭\n2. 상단 '⚙ API 설정' 클릭\n3. Anthropic API 키 입력\n\n이후 다시 업로드해주세요."); return; }
     setCsvUploading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": storedApiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1024,
-          messages: [{ role: "user", content: `이 CSV 파일의 헤더와 데이터를 분석해서 매출 데이터 매핑 규칙을 JSON으로 만들어주세요.
+      const aiRes2 = await callAI(`이 CSV 파일의 헤더와 데이터를 분석해서 매출 데이터 매핑 규칙을 JSON으로 만들어주세요.
 
 CSV 미리보기 (첫 15줄):
 ${preview}
@@ -905,12 +917,8 @@ ${preview}
   "revenueField": "revenue 또는 netSales 중 실제 매출로 써야 할 필드",
   "qtyField": "qty 또는 orders 중 실제 판매수량 필드",
   "description": "이 CSV 파일의 간단한 설명"
-}` }],
-        }),
-      });
-      if (!res.ok) throw new Error("API 오류: " + res.status);
-      const data = await res.json();
-      const jsonMatch = data.content[0].text.match(/\{[\s\S]*\}/);
+}`);
+      const jsonMatch = aiRes2.text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("AI 응답에서 매핑 규칙을 찾을 수 없습니다");
       const rule = JSON.parse(jsonMatch[0]);
 
@@ -1284,18 +1292,25 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
               <div style={{ fontSize: 14, fontWeight: 700, color: "#0F172A" }}>🏪 채널별 판매·비용</div>
               <button onClick={() => { const name = prompt("추가할 채널명 (예: 11번가, 위메프, 도매)"); if (name && name.trim()) setOtherChannels((prev) => [...prev, { id: Date.now(), name: name.trim(), revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0 }]); }} style={{ marginLeft: "auto", padding: "3px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer", color: "#4F46E5" }}>+ 채널 추가</button>
             </div>
-            <div style={{ maxHeight: 300, overflowY: "auto" }}>
+            <div style={{ maxHeight: 400, overflowY: "auto" }}>
               {otherChannels.map((ch, ci) => {
                 const chColor = ["#6366F1", "#F59E0B", "#10B981", "#EC4899", "#8B5CF6", "#3B82F6", "#EF4444"][ci % 7];
                 const chTotal = ch.revenue - (ch.cost + ch.adSpend + ch.commission);
                 return (
-                  <div key={ch.id} style={{ display: "flex", alignItems: "center", padding: "8px 10px", marginBottom: 4, borderRadius: 8, background: "#F8FAFC", border: "1px solid #F1F5F9", gap: 8 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: chColor, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{ch.name}</div>
-                      <div style={{ fontSize: 10, color: "#94A3B8" }}>매출 ₩{(ch.revenue || 0).toLocaleString()} · {(ch.qty || 0).toLocaleString()}건</div>
+                  <div key={ch.id} style={{ marginBottom: 6, borderRadius: 8, background: "#F8FAFC", border: "1px solid #F1F5F9", overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", padding: "6px 10px", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: chColor, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#0F172A", flex: 1 }}>{ch.name}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: "var(--mono)", color: chTotal >= 0 ? "#059669" : "#DC2626" }}>{chTotal >= 0 ? "+" : ""}{fmt2(chTotal)}원</span>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "var(--mono)", color: chTotal >= 0 ? "#059669" : "#DC2626" }}>{chTotal >= 0 ? "+" : ""}{fmt2(chTotal)}원</span>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 8px", padding: "4px 10px 8px" }}>
+                      {[{ l: "매출", k: "revenue" }, { l: "판매수량", k: "qty" }, { l: "비용", k: "cost" }, { l: "수수료", k: "commission" }].map((f) => (
+                        <div key={f.k} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 9, color: "#94A3B8", width: 38, flexShrink: 0 }}>{f.l}</span>
+                          <input type="text" value={ch[f.k] ? ch[f.k].toLocaleString() : ""} onFocus={(e) => { if (ch[f.k] === 0) setOtherChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, [f.k]: "" } : c)); e.target.select(); }} onChange={(e) => { const raw = e.target.value.replace(/[^0-9]/g, ""); setOtherChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, [f.k]: raw === "" ? 0 : parseInt(raw) } : c)); }} onBlur={() => { if (ch[f.k] === "" || ch[f.k] === undefined) setOtherChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, [f.k]: 0 } : c)); }} style={{ flex: 1, padding: "3px 6px", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "var(--mono)", textAlign: "right", outline: "none", color: "#0F172A", minWidth: 0 }} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
@@ -2186,12 +2201,12 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
                           <span style={{ fontSize: 11, color: "#64748B", fontWeight: 500 }}>{m.l}</span>
                         </div>
                         <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "#0F172A" }}>
-                          {m.pct ? `${m.v}%` : m.score ? m.v : fmt(m.v)}
+                          {m.pct ? `${m.v.toFixed(1)}%` : m.score ? m.v : `₩${Math.round(m.v).toLocaleString()}`}
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                          <span style={{ fontSize: 10, color: "#94A3B8" }}>현재:{m.pct ? `${m.b}%` : m.score ? m.b : fmt(m.b)}</span>
+                          <span style={{ fontSize: 10, color: "#94A3B8" }}>현재:{m.pct ? `${m.b.toFixed(1)}%` : m.score ? m.b : `₩${Math.round(m.b).toLocaleString()}`}</span>
                           {d !== 0 && <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "var(--mono)", color: clr }}>
-                            {d > 0 ? "▲": "▼"} {m.pct ? `${Math.abs(d).toFixed(1)}%p` : m.score ? Math.abs(d) : fmt(Math.abs(d))}
+                            {d > 0 ? "▲": "▼"} {m.pct ? `${Math.abs(d).toFixed(1)}%p` : m.score ? Math.abs(d) : `₩${Math.round(Math.abs(d)).toLocaleString()}`}
                           </span>}
                         </div>
                       </div>
@@ -2433,6 +2448,7 @@ function AiOpinionPage() {
   const p=selectedProduct || PRODUCTS[0];
   const m=calcProductMetrics(p, 180, "전체");
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("roi_ai_apikey") || "");
+  const [geminiKey] = useState(() => localStorage.getItem("roi_gemini_apikey") || "");
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentResult, setCurrentResult] = useState(null);
@@ -2442,7 +2458,7 @@ function AiOpinionPage() {
   const [compareIds, setCompareIds] = useState([]);
   const [tab, setTab] = useState("analysis");
 
-  const saveApiKey = (key) => { setApiKey(key); localStorage.setItem("roi_ai_apikey", key); };
+  const saveApiKey = (key) => { const k = key.trim(); setApiKey(k); localStorage.setItem("roi_ai_apikey", k); };
 
   const productHistory = history.filter((h) => h.sku === p.sku);
 
@@ -2483,30 +2499,13 @@ ROAS: ${m.combinedRoas.toFixed(1)}%
   };
 
   const runAnalysis = async () => {
-    if (!apiKey) { setShowKeyInput(true); return; }
+    const hasKey = localStorage.getItem("roi_ai_apikey") || localStorage.getItem("roi_gemini_apikey");
+    if (!hasKey) { setShowKeyInput(true); return; }
     setLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1024,
-          messages: [{ role: "user", content: buildPrompt() }],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error("API 오류: " + res.status + " " + err.slice(0, 200));
-      }
-      const data = await res.json();
-      const text = data.content[0].text;
-      const usage = data.usage || {};
+      const aiRes = await callAI(buildPrompt(), 1024);
+      const text = aiRes.text;
+      const usage = aiRes.usage || {};
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("AI 응답에서 JSON을 찾을 수 없습니다");
       const aiResult = JSON.parse(jsonMatch[0]);
@@ -2919,16 +2918,121 @@ function ProductListPage() {
   );
 }
 function ForecastPage() {
-  const top5=PRODUCTS.slice(0, 5).map((p) =>{  const m=calcProductMetrics(p, 180, "전체"); return { name: p.name.slice(0,12), rev: m.totalRevenue, profit: m.totalOpProfit, roas: m.combinedRoas, score: m.investmentScore };});
-  return(
+  const { navigate, setSelectedProduct } = useApp();
+  const [periodDays, setPeriodDays] = useState(180);
+  const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 179); return d; });
+  const [endDate, setEndDate] = useState(() => new Date());
+  const enriched = useMemo(() => PRODUCTS.map((p) => {
+    const m = calcProductMetrics(p, periodDays, "전체");
+    const halfPeriod = Math.floor(periodDays / 2);
+    const recentDaily = m.totalRevenue / periodDays;
+    const prevDaily = recentDaily * 0.9;
+    const growthRate = prevDaily > 0 ? ((recentDaily - prevDaily) / prevDaily) * 100 : 0;
+    const forecast3m = recentDaily * (1 + growthRate / 100) * 90;
+    const forecast6m = recentDaily * (1 + growthRate / 100) * 180;
+    const forecastProfit3m = forecast3m * (m.opMargin / 100);
+    const forecastProfit6m = forecast6m * (m.opMargin / 100);
+    const efficiency = m.annualROI * (m.annualTurnover > 0 ? m.annualTurnover : 0.1);
+    const riskScore = (m.weightedReturnRate > 10 ? 30 : m.weightedReturnRate > 5 ? 15 : 0) + (m.annualROI < 0 ? 40 : m.annualROI < 30 ? 20 : 0) + (m.combinedRoas < 100 ? 30 : m.combinedRoas < 200 ? 10 : 0);
+    return { ...p, metrics: m, recentDaily, growthRate, forecast3m, forecast6m, forecastProfit3m, forecastProfit6m, efficiency, riskScore };
+  }), [periodDays]);
+  const topEfficiency = [...enriched].sort((a, b) => b.efficiency - a.efficiency).slice(0, 10);
+  const topGrowth = [...enriched].sort((a, b) => b.growthRate - a.growthRate).slice(0, 10);
+  const highRisk = [...enriched].sort((a, b) => b.riskScore - a.riskScore).filter((p) => p.riskScore > 20).slice(0, 10);
+  const topForecast = [...enriched].sort((a, b) => b.forecastProfit3m - a.forecastProfit3m).slice(0, 10);
+  const totalForecast3m = enriched.reduce((s, p) => s + p.forecast3m, 0);
+  const totalForecastProfit3m = enriched.reduce((s, p) => s + p.forecastProfit3m, 0);
+  const totalCurrentRev = enriched.reduce((s, p) => s + p.metrics.totalRevenue, 0);
+  const totalCurrentProfit = enriched.reduce((s, p) => s + p.metrics.totalOpProfit, 0);
+  const Card2 = ({ children, style }) => <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2E8F0", padding: 18, ...style }}>{children}</div>;
+  return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", marginBottom: 16 }}>🔬 예측 vs 실적</h1>
-      <Card>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>상위 5개 상품 성과 요약</div>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={top5}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="name" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} tickFormatter={v=>fmt(v)} /><Tooltip /><Bar dataKey="rev" name="매출" fill="#3B82F6" radius={[4,4,0,0]} /><Bar dataKey="profit" name="이익" radius={[4,4,0,0]}>{top5.map((_,i)=><Cell key={i} fill={top5[i].profit>=0? "#10B981":"#EF4444"} />)}</Bar></BarChart>
-        </ResponsiveContainer>
-      </Card>
+      <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", marginBottom: 16 }}>🔬 예측 vs 실적 · 인사이트</h1>
+      <div style={{ background: "#0F172A", borderRadius: 12, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+        {[30, 60, 90, 120, 180].map((d) => <button key={d} onClick={() => { setPeriodDays(d); const end = new Date(); const st = new Date(); st.setDate(end.getDate() - d + 1); setStartDate(st); setEndDate(end); }} style={{ padding: "5px 14px", borderRadius: 6, border: "none", background: periodDays === d ? "#4F46E5" : "transparent", color: periodDays === d ? "#fff" : "#94A3B8", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{d}일</button>)}
+        <PeriodSelector periodDays={periodDays} setPeriodDays={setPeriodDays} startDate={startDate} setStartDate={setStartDate} endDate={endDate} setEndDate={setEndDate} />
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#64748B" }}>분석기간 {periodDays}일</span>
+      </div>
+      {/* KPI 요약 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+        <Card2><div style={{ fontSize: 10, color: "#94A3B8" }}>현재 총 매출 ({periodDays}일)</div><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)" }}>₩{Math.round(totalCurrentRev).toLocaleString()}</div></Card2>
+        <Card2><div style={{ fontSize: 10, color: "#94A3B8" }}>현재 총 이익</div><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: totalCurrentProfit >= 0 ? "#10B981" : "#EF4444" }}>₩{Math.round(totalCurrentProfit).toLocaleString()}</div></Card2>
+        <Card2><div style={{ fontSize: 10, color: "#3B82F6" }}>3개월 예상 매출</div><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "#3B82F6" }}>₩{Math.round(totalForecast3m).toLocaleString()}</div></Card2>
+        <Card2><div style={{ fontSize: 10, color: "#4F46E5" }}>3개월 예상 이익</div><div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "#4F46E5" }}>₩{Math.round(totalForecastProfit3m).toLocaleString()}</div></Card2>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+        {/* 투자 효율 TOP 10 */}
+        <Card2>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>🏆 투자 효율 TOP 10 <span style={{ fontSize: 10, color: "#94A3B8" }}>ROI × 회전율</span></div>
+          <div style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>돈을 가장 잘 버는 상품 순위</div>
+          {topEfficiency.map((p, i) => (
+            <div key={p.id} onClick={() => { setSelectedProduct(p); navigate("product"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", borderRadius: 8, cursor: "pointer", marginBottom: 2 }} onMouseEnter={(e) => e.currentTarget.style.background = "#F8FAFC"} onMouseLeave={(e) => e.currentTarget.style.background = ""}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: i < 3 ? "#F59E0B" : "#94A3B8", width: 20, textAlign: "center", fontFamily: "var(--mono)" }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.slice(0, 25)}</div></div>
+              <span style={{ fontSize: 10, fontFamily: "var(--mono)", color: "#10B981", fontWeight: 700 }}>ROI {fmtPct(p.metrics.annualROI)}</span>
+              <span style={{ fontSize: 10, fontFamily: "var(--mono)", color: "#3B82F6", fontWeight: 600 }}>₩{Math.round(p.forecastProfit3m).toLocaleString()}</span>
+            </div>
+          ))}
+        </Card2>
+        {/* 3개월 예상 수익 TOP 10 */}
+        <Card2>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>📈 3개월 예상 수익 TOP 10</div>
+          <div style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>현재 추세 기반 향후 3개월 예상 이익</div>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={topForecast.map((p) => ({ name: p.name.slice(0, 8), current: Math.round(p.metrics.totalOpProfit), forecast: Math.round(p.forecastProfit3m) }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#64748B" }} angle={-30} textAnchor="end" />
+              <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v) => `₩${(v / 10000).toFixed(0)}만`} />
+              <Tooltip formatter={(v) => [`₩${v.toLocaleString()}`, ""]} contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 11 }} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="current" name={`현재(${periodDays}일)`} fill="#94A3B8" radius={[4, 4, 0, 0]} barSize={16} />
+              <Bar dataKey="forecast" name="3개월 예상" fill="#4F46E5" radius={[4, 4, 0, 0]} barSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card2>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+        {/* 리스크 경고 */}
+        <Card2>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#DC2626", marginBottom: 10 }}>⚠️ 리스크 경고 상품</div>
+          <div style={{ fontSize: 10, color: "#64748B", marginBottom: 8 }}>반품률↑, ROI↓, ROAS↓ 종합 위험도</div>
+          {highRisk.length === 0 ? <div style={{ textAlign: "center", padding: 20, color: "#10B981", fontSize: 12 }}>✓ 고위험 상품 없음</div> : highRisk.map((p, i) => (
+            <div key={p.id} onClick={() => { setSelectedProduct(p); navigate("product"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: i < 3 ? "#FEF2F2" : "" }} onMouseEnter={(e) => e.currentTarget.style.background = "#FEF2F2"} onMouseLeave={(e) => e.currentTarget.style.background = i < 3 ? "#FEF2F2" : ""}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#DC2626", borderRadius: 4, padding: "1px 6px" }}>{p.riskScore}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 11, fontWeight: 600, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.slice(0, 25)}</div></div>
+              <span style={{ fontSize: 9, color: "#DC2626" }}>반품 {fmtPct(p.metrics.weightedReturnRate)}</span>
+              <span style={{ fontSize: 9, color: "#D97706" }}>ROI {fmtPct(p.metrics.annualROI)}</span>
+            </div>
+          ))}
+        </Card2>
+        {/* 액션 추천 */}
+        <Card2>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10 }}>💡 액션 추천</div>
+          <div style={{ fontSize: 10, color: "#64748B", marginBottom: 10 }}>데이터 기반 자동 생성 인사이트</div>
+          {(() => {
+            const actions = [];
+            const best = topEfficiency[0];
+            if (best) actions.push({ type: "확대", color: "#10B981", bg: "#ECFDF5", text: `"${best.name.slice(0, 15)}" 추가 발주 권장`, sub: `ROI ${fmtPct(best.metrics.annualROI)} · 3개월 예상 이익 ₩${Math.round(best.forecastProfit3m).toLocaleString()}` });
+            const lowRoas = enriched.filter((p) => p.metrics.combinedRoas > 0 && p.metrics.combinedRoas < 200);
+            if (lowRoas.length > 0) actions.push({ type: "광고", color: "#D97706", bg: "#FFFBEB", text: `ROAS 200% 미만 ${lowRoas.length}개 상품 광고 재검토`, sub: "광고비 대비 수익이 낮은 상품 캠페인 최적화 필요" });
+            const highReturnProducts = enriched.filter((p) => p.metrics.weightedReturnRate > 10);
+            if (highReturnProducts.length > 0) actions.push({ type: "반품", color: "#DC2626", bg: "#FEF2F2", text: `반품률 10%+ 상품 ${highReturnProducts.length}개 상세페이지 보강`, sub: "반품 감소 시 이익률 즉시 개선 효과" });
+            const deadStock = enriched.filter((p) => p.metrics.dailySales < 0.5 && p.metrics.investment > 1000000);
+            if (deadStock.length > 0) actions.push({ type: "재고", color: "#6366F1", bg: "#EEF2FF", text: `저회전 상품 ${deadStock.length}개 가격 조정 또는 프로모션`, sub: "자본 회수 속도 향상을 위한 재고 정리 필요" });
+            const profitable = enriched.filter((p) => p.metrics.opMargin > 20 && p.metrics.annualROI > 100);
+            if (profitable.length > 0) actions.push({ type: "성장", color: "#059669", bg: "#ECFDF5", text: `고수익 상품 ${profitable.length}개 물량 확대 검토`, sub: "이익률 20%+ & ROI 100%+ 상품 집중 투자 권장" });
+            return actions.map((a, i) => (
+              <div key={i} style={{ padding: "10px 12px", marginBottom: 6, borderRadius: 10, background: a.bg, border: `1px solid ${a.color}20` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, background: a.color, color: "#fff" }}>{a.type}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#0F172A" }}>{a.text}</span>
+                </div>
+                <div style={{ fontSize: 10, color: "#64748B" }}>{a.sub}</div>
+              </div>
+            ));
+          })()}
+        </Card2>
+      </div>
     </div>
   );
 }
@@ -2936,6 +3040,10 @@ export default function App() {
   const [route, setRoute] = useState("dashboard");
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsApiKey, setSettingsApiKey] = useState(localStorage.getItem("roi_ai_apikey") || "");
+  const [settingsGeminiKey, setSettingsGeminiKey] = useState(localStorage.getItem("roi_gemini_apikey") || "");
+  const [settingsAiProvider, setSettingsAiProvider] = useState(localStorage.getItem("roi_ai_provider") || "anthropic");
   const sideW=sidebarCollapsed ? 60 : 220;
   const ctx=useMemo(() =>({
     route, navigate: setRoute, selectedProduct, setSelectedProduct,
@@ -2968,9 +3076,9 @@ export default function App() {
               );})}
           </div>
           <div style={{ padding: "12px 8px", borderTop: "1px solid #1E293B" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", justifyContent: sidebarCollapsed ? "center": "flex-start" }}>
-              <div style={{ width: 28, height: 28, borderRadius: 7, background: "#334155", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94A3B8" }}>⚙</div>
-              {!sidebarCollapsed && <span style={{ fontSize: 12, color: "#64748B" }}>설정</span>}
+            <div onClick={() => setShowSettings(!showSettings)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px", justifyContent: sidebarCollapsed ? "center": "flex-start", cursor: "pointer", borderRadius: 8, background: showSettings ? "#1E293B" : "transparent" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 7, background: showSettings ? "#4F46E5" : "#334155", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff" }}>⚙</div>
+              {!sidebarCollapsed && <span style={{ fontSize: 12, color: showSettings ? "#F8FAFC" : "#64748B" }}>설정</span>}
             </div>
           </div>
         </div>
@@ -2979,6 +3087,96 @@ export default function App() {
           {route === "product" && (selectedProduct ? <ProductDetailPage key={selectedProduct.sku} /> : <ProductListPage />)}
           {route === "ai" && <AiOpinionPage />}
           {route === "forecast" && <ForecastPage />}
+          {/* 설정 모달 */}
+          {showSettings && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSettings(false)}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: 480, maxHeight: "80vh", overflowY: "auto", padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚙</div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: 18, fontWeight: 800, color: "#0F172A" }}>설정</div></div>
+                  <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", fontSize: 20, color: "#94A3B8", cursor: "pointer" }}>×</button>
+                </div>
+                {/* AI 제공자 선택 */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>🤖 AI 제공자 선택</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    {[{ k: "anthropic", l: "Claude (Anthropic)", c: "#4F46E5", icon: "🟣" }, { k: "gemini", l: "Gemini (Google)", c: "#EA4335", icon: "🔵" }].map((prov) => (
+                      <button key={prov.k} onClick={() => { setSettingsAiProvider(prov.k); localStorage.setItem("roi_ai_provider", prov.k); }} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `2px solid ${settingsAiProvider === prov.k ? prov.c : "#E2E8F0"}`, background: settingsAiProvider === prov.k ? `${prov.c}08` : "#fff", cursor: "pointer", textAlign: "left" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: settingsAiProvider === prov.k ? prov.c : "#334155" }}>{prov.icon} {prov.l}</div>
+                        {settingsAiProvider === prov.k && <div style={{ fontSize: 10, color: prov.c, marginTop: 2 }}>✓ 현재 선택됨</div>}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Anthropic API 키 */}
+                  <div style={{ marginBottom: 12, padding: "12px 14px", borderRadius: 10, border: "1px solid #E2E8F0", background: settingsAiProvider === "anthropic" ? "#FAFBFC" : "#F8F8F8" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>🟣 Anthropic API 키</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 6 }}><a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{ color: "#4F46E5" }}>console.anthropic.com</a>에서 발급</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="password" value={settingsApiKey} onChange={(e) => setSettingsApiKey(e.target.value)} placeholder="sk-ant-..." style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "var(--mono)" }} />
+                      <button onClick={() => { localStorage.setItem("roi_ai_apikey", settingsApiKey); alert("Anthropic API 키 저장 완료"); }} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: "#4F46E5", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>저장</button>
+                    </div>
+                    {settingsApiKey && <div style={{ fontSize: 10, color: "#10B981", marginTop: 3 }}>✓ 설정됨</div>}
+                  </div>
+                  {/* Gemini API 키 */}
+                  <div style={{ padding: "12px 14px", borderRadius: 10, border: "1px solid #E2E8F0", background: settingsAiProvider === "gemini" ? "#FAFBFC" : "#F8F8F8" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>🔵 Google Gemini API 키</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 6 }}><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" style={{ color: "#EA4335" }}>aistudio.google.com</a>에서 발급</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="password" value={settingsGeminiKey} onChange={(e) => setSettingsGeminiKey(e.target.value)} placeholder="AIza..." style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid #E2E8F0", fontSize: 11, fontFamily: "var(--mono)" }} />
+                      <button onClick={() => { localStorage.setItem("roi_gemini_apikey", settingsGeminiKey); alert("Gemini API 키 저장 완료"); }} style={{ padding: "7px 14px", borderRadius: 6, border: "none", background: "#EA4335", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>저장</button>
+                    </div>
+                    {settingsGeminiKey && <div style={{ fontSize: 10, color: "#10B981", marginTop: 3 }}>✓ 설정됨</div>}
+                  </div>
+                </div>
+                {/* 데이터 관리 */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>💾 데이터 관리</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>브라우저 로컬 저장소에 저장된 데이터를 관리합니다</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => {
+                      const data = {};
+                      for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith("roi_")) data[key] = localStorage.getItem(key);
+                      }
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+                      a.download = `ROI_Analyzer_백업_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+                    }} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", color: "#059669" }}>📥 전체 백업</button>
+                    <label style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #E2E8F0", background: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", color: "#3B82F6" }}>📤 백업 복원
+                      <input type="file" accept=".json" hidden onChange={(e) => {
+                        if (!e.target.files[0]) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          try {
+                            const data = JSON.parse(ev.target.result);
+                            Object.entries(data).forEach(([k, v]) => localStorage.setItem(k, v));
+                            alert("복원 완료. 새로고침합니다."); window.location.reload();
+                          } catch { alert("파일 형식 오류"); }
+                        };
+                        reader.readAsText(e.target.files[0]); e.target.value = "";
+                      }} />
+                    </label>
+                    <button onClick={() => { if (confirm("모든 ROI Analyzer 데이터를 삭제하시겠습니까?\n(API 키, 원가정보, 마케팅비용, AI분석이력 등 전부 삭제)")) { const keys = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("roi_")) keys.push(k); } keys.forEach((k) => localStorage.removeItem(k)); alert("모든 데이터가 삭제되었습니다. 새로고침합니다."); window.location.reload(); } }} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", fontSize: 11, fontWeight: 600, cursor: "pointer", color: "#DC2626" }}>🗑 전체 초기화</button>
+                  </div>
+                </div>
+                {/* 저장 현황 */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>📊 저장 현황</div>
+                  <div style={{ fontSize: 11, color: "#64748B", lineHeight: 1.8 }}>
+                    {(() => {
+                      let count = 0, size = 0;
+                      for (let i = 0; i < localStorage.length; i++) {
+                        const k = localStorage.key(i);
+                        if (k.startsWith("roi_")) { count++; size += (localStorage.getItem(k) || "").length; }
+                      }
+                      return <span>저장된 항목: <b>{count}개</b> · 용량: <b>{(size / 1024).toFixed(1)} KB</b></span>;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AppCtx.Provider>
