@@ -5,3 +5,5 @@ __pycache__/
 token.json
 credentials.json
 .claude/settings.local.json
+dist/
+.DS_Store

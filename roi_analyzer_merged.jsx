@@ -376,7 +376,7 @@ const SH=({ label, field, w }) =>(
   </div>
   <div style={{ position:"relative", width: 220 }}>
     <svg style={{ position:"absolute", left: 12, top:"50%", transform:"translateY(-50%)" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="상품명, SKU 검색..." style={{ width:"100%", padding:"9px 12px 9px 36px", borderRadius: 10, border:"1px solid #E2E8F0", fontSize: 13, outline:"none", fontFamily:"inherit", color:"#0F172A" }} />
+    <input value={search} onChange={e=>{ setSearch(e.target.value); if (e.target.value.trim()) setDashTab("table"); }} placeholder="상품명, SKU 검색..." style={{ width:"100%", padding:"9px 12px 9px 36px", borderRadius: 10, border:"1px solid #E2E8F0", fontSize: 13, outline:"none", fontFamily:"inherit", color:"#0F172A" }} />
   </div>
 </div>
 {/* Period Bar */}
@@ -563,6 +563,7 @@ const SH=({ label, field, w }) =>(
   </Card>
 </div>
 </div>)}
+{dashTab === "table" && search && (<div style={{ padding: "8px 14px", marginBottom: 10, borderRadius: 8, background: "#EEF2FF", border: "1px solid #C7D2FE", fontSize: 12, color: "#4F46E5", fontWeight: 600 }}>🔍 "{search}" 검색 결과: {filtered.length}개 상품</div>)}
 {dashTab === "table" && (<div>
 {/* Category Filter */}
 <div style={{ display:"flex", gap: 6, marginBottom: 14 }}>
@@ -630,28 +631,28 @@ return(
 function ProductDetailPage() {
 const { selectedProduct, navigate }=useApp();  const p=selectedProduct || PRODUCTS[0];
 const [periodDays, setPeriodDays] = useState(180);  const [channelMode, setChannelMode] = useState("전체");  const [calcMode, setCalcMode] = useState(() => localStorage.getItem("roi_calcmode_" + (selectedProduct?.sku || "default")) || "쿠팡+네이버");  const [activeTab, setActiveTab] = useState("overview");  const [startDate, setStartDate] = useState(()=>{ const d=new Date(); d.setDate(d.getDate() - 179); return d;});  const [endDate, setEndDate] = useState(()=>new Date());  const [editingInvestment, setEditingInvestment] = useState(false);  const [investmentOverride, setInvestmentOverride] = useState(null);  const [editVal, setEditVal] = useState("");  const [otherChannels, setOtherChannels] = useState(() => {
-    const saved = localStorage.getItem("roi_channels_" + p.sku);
-    return saved ? JSON.parse(saved) : [
+    try { const saved = localStorage.getItem("roi_channels_" + p.sku); if (saved) { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) return parsed; } } catch {}
+    return [
       { id: 1, name: "자사몰", revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0 },
       { id: 2, name: "오픈마켓", revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0 },
       { id: 3, name: "기타몰", revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0 },
     ];
   });  const [editImportQty, setEditImportQty] = useState(() => {
-    const saved = localStorage.getItem("roi_costlive_" + p.sku);
-    return saved ? JSON.parse(saved).qty : p.importQty;
+    try { const saved = localStorage.getItem("roi_costlive_" + p.sku); if (saved) { const v = JSON.parse(saved).qty; if (v != null) return v; } } catch {}
+    return p.importQty;
   });
   const [editUnitCost, setEditUnitCost] = useState(() => {
-    const saved = localStorage.getItem("roi_costlive_" + p.sku);
-    return saved ? JSON.parse(saved).unitCost : p.unitCost;
+    try { const saved = localStorage.getItem("roi_costlive_" + p.sku); if (saved) { const v = JSON.parse(saved).unitCost; if (v != null) return v; } } catch {}
+    return p.unitCost;
   });
   const [editLogistics, setEditLogistics] = useState(() => {
-    const saved = localStorage.getItem("roi_costlive_" + p.sku);
-    return saved ? JSON.parse(saved).logistics : p.logisticsCostPerUnit;
+    try { const saved = localStorage.getItem("roi_costlive_" + p.sku); if (saved) { const v = JSON.parse(saved).logistics; if (v != null) return v; } } catch {}
+    return p.logisticsCostPerUnit;
   });
   const [chartMetric, setChartMetric] = useState("revenue_profit");
   const [extraCosts, setExtraCosts] = useState(() => {
-    const saved = localStorage.getItem("roi_mktlive_" + p.sku);
-    return saved ? JSON.parse(saved) : [];
+    try { const saved = localStorage.getItem("roi_mktlive_" + p.sku); if (saved) { const parsed = JSON.parse(saved); if (Array.isArray(parsed)) return parsed; } } catch {}
+    return [];
   });
   useEffect(() => {
     localStorage.setItem("roi_costlive_" + p.sku, JSON.stringify({ qty: editImportQty, unitCost: editUnitCost, logistics: editLogistics }));
@@ -1043,7 +1044,12 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
     ].sort((a, b)=>b.roas - a.roas);
     allChannels.forEach((c, i)=>c.overallRank = i + 1);
     return { categories, allChannels, totalMktSpend, totalMktRevenue, coupangAdSpend, coupangAdRevenue, totalAllSpend, coupangRoas };
-  },[extraCosts, metrics]); const  mktHistory=useMemo(()=>{
+  },[extraCosts, metrics]);
+  // 추가 마케팅 비용 반영된 조정 지표
+  const adjProfit = metrics.totalOpProfit - mktAnalysis.totalMktSpend;
+  const adjOpMargin = metrics.totalRevenue > 0 ? (adjProfit / metrics.totalRevenue) * 100 : 0;
+  const adjPeriodROI = metrics.investment > 0 ? (adjProfit / metrics.investment) * 100 : 0;
+  const adjAnnualROI = periodDays > 0 ? adjPeriodROI * (365 / periodDays) : 0; const  mktHistory=useMemo(()=>{
     const baseAdSpend=metrics.totalAdSpend;
     const baseRevenue=metrics.totalRevenue;
     const baseRoas=metrics.combinedRoas;
@@ -1093,10 +1099,10 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
     months.forEach((m) =>{  cumSpend += m.totalSpend; cumProfit += m.opProfit; m.cumSpend = cumSpend; m.cumProfit = cumProfit; m.cumROI = cumSpend > 0 ? +((cumProfit / cumSpend) * 100).toFixed(1):0;});
     return months;
   },[metrics, extraCosts, p]); const  waterfallData=[
-    { name: "매출", value: metrics.totalRevenue, fill: "#3B82F6" },{ name: "원가", value: -metrics.totalCogs, fill: "#EF4444" },{ name: "광고비", value: -metrics.totalAdSpend, fill: "#F59E0B" },{ name: "수수료", value: -metrics.totalCommission, fill: "#8B5CF6" },{ name: "물류비", value: -metrics.totalLogistics, fill: "#06B6D4" },{ name: "반품비", value: -metrics.totalReturnCost, fill: "#EC4899" },...(metrics.totalOtherCost > 0 ? [{ name: "추가마케팅", value: -metrics.totalOtherCost, fill: "#8B5CF6" }]:[]),
-    { name: "영업이익", value: metrics.totalOpProfit, fill: metrics.totalOpProfit >= 0 ? "#10B981":"#EF4444" },];
+    { name: "매출", value: metrics.totalRevenue, fill: "#3B82F6" },{ name: "원가", value: -metrics.totalCogs, fill: "#EF4444" },{ name: "광고비", value: -metrics.totalAdSpend, fill: "#F59E0B" },{ name: "수수료", value: -metrics.totalCommission, fill: "#8B5CF6" },{ name: "물류비", value: -metrics.totalLogistics, fill: "#06B6D4" },{ name: "반품비", value: -metrics.totalReturnCost, fill: "#EC4899" },...(mktAnalysis.totalMktSpend > 0 ? [{ name: "추가마케팅", value: -mktAnalysis.totalMktSpend, fill: "#A855F7" }]:[]),
+    { name: "영업이익", value: adjProfit, fill: adjProfit >= 0 ? "#10B981":"#EF4444" },];
   const costPieData=[
-    { name: "매출원가", value: metrics.totalCogs, fill: "#EF4444" },{ name: "광고비", value: metrics.totalAdSpend, fill: "#F59E0B" },{ name: "수수료", value: metrics.totalCommission, fill: "#8B5CF6" },{ name: "물류비", value: metrics.totalLogistics, fill: "#06B6D4" },{ name: "반품비", value: metrics.totalReturnCost, fill: "#EC4899" },].filter((d) => d.value > 0);
+    { name: "광고비", value: metrics.totalAdSpend, fill: "#F59E0B" },{ name: "수수료", value: metrics.totalCommission, fill: "#8B5CF6" },{ name: "물류비", value: metrics.totalLogistics, fill: "#06B6D4" },{ name: "반품비", value: metrics.totalReturnCost, fill: "#EC4899" },].filter((d) => d.value > 0);
   const handleSaveInvestment=()=>{
     const val=parseInt(editVal.replace(/,/g, "")); if (!isNaN(val) && val > 0) setInvestmentOverride(val);
     setEditingInvestment(false);
@@ -1152,7 +1158,7 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
           )}
         </div>
         {[
-          { l: "총매출", v: fmtW(metrics.totalRevenue)},{ l: "영업이익", v: fmtW(metrics.totalOpProfit), c: metrics.totalOpProfit >= 0 ? "#10B981":"#EF4444", s: `이익률 ${fmtPct(metrics.opMargin)}` },{ l: `ROI (${periodDays}일)`, v: fmtPct(metrics.periodROI), c: metrics.periodROI >= 0 ? "#10B981":"#EF4444", s: `연환산 ${fmtPct(metrics.annualROI)}` },{ l: "ROAS", v: fmtPct(metrics.combinedRoas), c: metrics.combinedRoas >= metrics.beRoas ? "#10B981":"#EF4444", s: `BE-ROAS ${fmtPct(metrics.beRoas)}` },{ l: "연간 회전율", v: `${metrics.annualTurnover.toFixed(1)}회`, s: metrics.paybackDays ? `회수 ${Math.round(metrics.paybackDays)}일`:"회수 불가" },{ l: "리뷰", v: `${metrics.totalReviews}건`, s: `평점 ${metrics.weightedRating.toFixed(1)}` },{ l: "반품률", v: fmtPct(metrics.weightedReturnRate), c: metrics.weightedReturnRate <= 3 ? "#10B981":metrics.weightedReturnRate <= 5 ? "#F59E0B":"#EF4444" },].map((k, i) =>(
+          { l: "판매수량", v: `${metrics.totalUnitsSold.toLocaleString()}개`, s: `일평균 ${metrics.dailySales.toFixed(1)}개` },{ l: "총매출", v: fmtW(metrics.totalRevenue)},{ l: "영업이익", v: fmtW(adjProfit), c: adjProfit >= 0 ? "#10B981":"#EF4444", s: mktAnalysis.totalMktSpend > 0 ? `이익률 ${fmtPct(adjOpMargin)} (마케팅 -${fmtW(mktAnalysis.totalMktSpend)})` : `이익률 ${fmtPct(metrics.opMargin)}` },{ l: `ROI (${periodDays}일)`, v: fmtPct(adjPeriodROI), c: adjPeriodROI >= 0 ? "#10B981":"#EF4444", s: `연환산 ${fmtPct(adjAnnualROI)}` },{ l: "ROAS", v: fmtPct(metrics.combinedRoas), c: metrics.combinedRoas >= metrics.beRoas ? "#10B981":"#EF4444", s: `BE-ROAS ${fmtPct(metrics.beRoas)}` },{ l: "연간 회전율", v: `${metrics.annualTurnover.toFixed(1)}회`, s: metrics.paybackDays ? `회수 ${Math.round(metrics.paybackDays)}일`:"회수 불가" },{ l: "리뷰", v: `${metrics.totalReviews}건`, s: `평점 ${metrics.weightedRating.toFixed(1)}` },{ l: "반품률", v: fmtPct(metrics.weightedReturnRate), c: metrics.weightedReturnRate <= 3 ? "#10B981":metrics.weightedReturnRate <= 5 ? "#F59E0B":"#EF4444" },].map((k, i) =>(
           <div key={i} style={{ background: "#fff", borderRadius: 10, padding: "10px 14px", border: "1px solid #E2E8F0", flex: 1, minWidth: 110 }}>
             <div className="label">{k.l}</div>
             <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "var(--mono)", color: k.c || "#0F172A" }}>{k.v}</div>
@@ -1648,7 +1654,7 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
                           style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "var(--mono)", textAlign: "right", outline: "none", color: "#0F172A" }} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>기대 매출 (원) <span style={{ color: "#CBD5E1" }}>선택</span></div>
+                        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>기대 매출 (원) <span style={{ color: "#F59E0B", fontSize: 9 }}>※ 매출에는 반영되지 않습니다</span></div>
                         <input value={newCostExpectedRevenue ? parseInt(newCostExpectedRevenue).toLocaleString() : ""} onChange={(e) => setNewCostExpectedRevenue(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0"
                           style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "var(--mono)", textAlign: "right", outline: "none", color: "#0F172A" }} />
                       </div>
@@ -3044,6 +3050,178 @@ export default function App() {
   const [settingsApiKey, setSettingsApiKey] = useState(localStorage.getItem("roi_ai_apikey") || "");
   const [settingsGeminiKey, setSettingsGeminiKey] = useState(localStorage.getItem("roi_gemini_apikey") || "");
   const [settingsAiProvider, setSettingsAiProvider] = useState(localStorage.getItem("roi_ai_provider") || "anthropic");
+  // 엑셀 업로드 & AI 매칭 상태
+  const [uploadData, setUploadData] = useState({ cost: null, ad: null, sales: null });
+  const [matchResult, setMatchResult] = useState(null); // { type, rows, matches: [{excelName, matchedSku, matchedName, confidence, manual}] }
+  const [matchLoading, setMatchLoading] = useState(""); // "" or type being loaded
+  const [matchApplied, setMatchApplied] = useState({ cost: false, ad: false, sales: false });
+  const parseExcelUpload = useCallback((file, type) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (rows.length === 0) { alert("데이터가 없습니다."); return; }
+        setUploadData((prev) => ({ ...prev, [type]: { rows, headers: Object.keys(rows[0]), fileName: file.name } }));
+        setMatchApplied((prev) => ({ ...prev, [type]: false }));
+      } catch { alert("엑셀 파일을 읽을 수 없습니다."); }
+    };
+    reader.readAsArrayBuffer(file);
+  }, []);
+  const safeParseJsonArray = (text) => {
+    const s = text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+    try { return JSON.parse(s); } catch {}
+    // 개별 객체를 정규식으로 추출 (잘린 JSON에도 안전)
+    const objs = [];
+    const regex = /\{\s*"excelName"\s*:\s*"([^"]*)"\s*,\s*"matchedSku"\s*:\s*"([^"]*)"\s*,\s*"confidence"\s*:\s*(\d+)\s*\}/g;
+    let m;
+    while ((m = regex.exec(s)) !== null) {
+      objs.push({ excelName: m[1], matchedSku: m[2], confidence: parseInt(m[3]) });
+    }
+    if (objs.length > 0) return objs;
+    // 필드 순서가 다를 수 있으므로 느슨한 추출
+    const loose = /\{[^{}]{5,300}\}/g;
+    let lm;
+    while ((lm = loose.exec(s)) !== null) {
+      try { const o = JSON.parse(lm[0]); if (o.excelName) objs.push(o); } catch {}
+    }
+    if (objs.length > 0) return objs;
+    throw new Error("AI 응답을 파싱할 수 없습니다. 다시 시도해주세요.");
+  };
+  const runAiMatching = useCallback(async (type) => {
+    const data = uploadData[type];
+    if (!data) return;
+    setMatchLoading(type);
+    try {
+      const nameCol = data.headers.find((h) => /상품명|품명|product|name|제품명|item/i.test(h)) || data.headers[0];
+      const excelNames = [...new Set(data.rows.map((r) => String(r[nameCol] || "").trim()).filter(Boolean))];
+      if (excelNames.length === 0) { alert("상품명을 찾을 수 없습니다."); setMatchLoading(""); return; }
+      const productList = PRODUCTS.map((p) => `${p.sku}:${p.name}`).join("|");
+      // 배치 처리: 10개씩 나눠서 AI 호출
+      const BATCH = 10;
+      const allMatches = [];
+      for (let i = 0; i < excelNames.length; i += BATCH) {
+        const batch = excelNames.slice(i, i + BATCH);
+        const prompt = `상품명 매칭. 각 엑셀명에 가장 유사한 SKU를 찾아라.
+기존상품: ${productList}
+
+매칭대상:
+${batch.map((n, j) => `${j + 1}.${n}`).join("\n")}
+
+JSON만 응답: [{"excelName":"이름","matchedSku":"P001","confidence":85}]
+못찾으면 matchedSku:"". 설명없이 JSON만.`;
+        const res = await callAI(prompt, 1500);
+        const parsed = safeParseJsonArray(res.text);
+        allMatches.push(...parsed);
+      }
+      const matches = excelNames.map((name) => {
+        const found = allMatches.find((m) => m.excelName === name);
+        const prod = found ? PRODUCTS.find((p) => p.sku === found.matchedSku) : null;
+        return { excelName: name, matchedSku: found?.matchedSku || "", matchedName: prod ? prod.name : "(미매칭)", confidence: found?.confidence || 0, manual: false };
+      });
+      setMatchResult({ type, rows: data.rows, nameCol, matches });
+    } catch (e) { alert("AI 매칭 오류: " + e.message); }
+    setMatchLoading("");
+  }, [uploadData]);
+  const parseNum = (v) => Number(String(v).replace(/[^0-9.-]/g, "")) || 0;
+  const findCol = (headers, pattern) => headers.find((h) => pattern.test(h));
+  const applyMatchedData = useCallback((type) => {
+    if (!matchResult || matchResult.type !== type) return;
+    const { rows, nameCol, matches } = matchResult;
+    const nameToSku = {};
+    matches.forEach((m) => { if (m.matchedSku) nameToSku[m.excelName] = m.matchedSku; });
+    const skuSet = new Set();
+    const headers = Object.keys(rows[0] || {});
+    if (type === "cost") {
+      const costCol = findCol(headers, /원가|단가|cost|unit.*cost|매입가|공급가/i);
+      const logCol = findCol(headers, /물류|배송|logistics|shipping/i);
+      const qtyCol = findCol(headers, /수량|qty|quantity|입고/i);
+      rows.forEach((r) => {
+        const sku = nameToSku[String(r[nameCol] || "").trim()];
+        if (!sku) return;
+        const obj = JSON.parse(localStorage.getItem("roi_costlive_" + sku) || "{}");
+        if (costCol && r[costCol]) obj.unitCost = parseNum(r[costCol]);
+        if (logCol && r[logCol]) obj.logistics = parseNum(r[logCol]);
+        if (qtyCol && r[qtyCol]) obj.qty = parseNum(r[qtyCol]);
+        localStorage.setItem("roi_costlive_" + sku, JSON.stringify(obj));
+        skuSet.add(sku);
+      });
+    } else if (type === "ad") {
+      // extraCosts 형식: [{id, category, label, amount, expectedRevenue}]
+      const chCol = findCol(headers, /채널|channel|매체|플랫폼|광고매체/i);
+      const spendCol = findCol(headers, /광고비|ad.*spend|비용|spend|금액|집행액/i);
+      const labelCol = findCol(headers, /캠페인|campaign|광고명|내용/i);
+      const skuAdMap = {};
+      rows.forEach((r) => {
+        const sku = nameToSku[String(r[nameCol] || "").trim()];
+        if (!sku) return;
+        if (!skuAdMap[sku]) skuAdMap[sku] = [];
+        const ch = chCol ? String(r[chCol] || "").trim() : "";
+        const spend = spendCol ? parseNum(r[spendCol]) : 0;
+        const label = labelCol ? String(r[labelCol] || "").trim() : (ch || "광고비");
+        // 채널명 → 마케팅 카테고리 매핑
+        let cat = "other";
+        if (/인플루언서|유튜브|인스타|틱톡커|협찬/i.test(ch + label)) cat = "influencer";
+        else if (/sns|메타|페이스북|카카오|네이버.*광고|구글.*광고|gdn|facebook|meta/i.test(ch + label)) cat = "sns";
+        else if (/촬영|콘텐츠|상세페이지|영상/i.test(ch + label)) cat = "content";
+        else if (/리뷰|체험단|시딩/i.test(ch + label)) cat = "review";
+        else if (/프로모션|할인|쿠폰|기획전|번들/i.test(ch + label)) cat = "promo";
+        skuAdMap[sku].push({ id: Date.now() + Math.random(), category: cat, label: label || "광고비", amount: spend, expectedRevenue: 0 });
+      });
+      Object.entries(skuAdMap).forEach(([sku, newCosts]) => {
+        const prev = JSON.parse(localStorage.getItem("roi_mktlive_" + sku) || "[]");
+        const merged = Array.isArray(prev) ? [...prev, ...newCosts] : newCosts;
+        localStorage.setItem("roi_mktlive_" + sku, JSON.stringify(merged));
+        skuSet.add(sku);
+      });
+    } else if (type === "sales") {
+      const chCol = findCol(headers, /채널|channel|매체|플랫폼/i);
+      const revCol = findCol(headers, /매출|revenue|판매액|sales|금액|결제액/i);
+      const qtyCol = findCol(headers, /수량|qty|quantity|판매수|건수/i);
+      const costCol = findCol(headers, /비용|cost|원가/i);
+      const adCol = findCol(headers, /광고비|ad.*spend/i);
+      const commCol = findCol(headers, /수수료|commission|fee/i);
+      const skuChMap = {};
+      rows.forEach((r) => {
+        const sku = nameToSku[String(r[nameCol] || "").trim()];
+        if (!sku) return;
+        if (!skuChMap[sku]) skuChMap[sku] = {};
+        const ch = chCol ? String(r[chCol] || "").trim() : "기타";
+        if (!skuChMap[sku][ch]) skuChMap[sku][ch] = { revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0 };
+        skuChMap[sku][ch].revenue += revCol ? parseNum(r[revCol]) : 0;
+        skuChMap[sku][ch].qty += qtyCol ? parseNum(r[qtyCol]) : 0;
+        skuChMap[sku][ch].cost += costCol ? parseNum(r[costCol]) : 0;
+        skuChMap[sku][ch].adSpend += adCol ? parseNum(r[adCol]) : 0;
+        skuChMap[sku][ch].commission += commCol ? parseNum(r[commCol]) : 0;
+      });
+      Object.entries(skuChMap).forEach(([sku, chData]) => {
+        const prev = JSON.parse(localStorage.getItem("roi_channels_" + sku) || "[]");
+        const channels = Array.isArray(prev) ? [...prev] : [];
+        Object.entries(chData).forEach(([ch, data]) => {
+          const existing = channels.find((c) => c.name === ch);
+          if (existing) { existing.revenue += data.revenue; existing.qty += data.qty; existing.cost += data.cost; existing.adSpend += data.adSpend; existing.commission += data.commission; }
+          else channels.push({ id: Date.now() + Math.random(), name: ch, ...data });
+        });
+        localStorage.setItem("roi_channels_" + sku, JSON.stringify(channels));
+        skuSet.add(sku);
+      });
+    }
+    setMatchApplied((prev) => ({ ...prev, [type]: true }));
+    const typeLabel = { cost: "원가", ad: "광고", sales: "매출" }[type];
+    alert(`✅ ${typeLabel} 데이터 적용 완료!\n\n적용 상품: ${skuSet.size}개 SKU\n처리 행: ${rows.length}행\n\n상품 상세 페이지에서 확인하세요.`);
+  }, [matchResult]);
+  // 이전 버전에서 잘못 저장된 mktlive 데이터(객체) 정리
+  useEffect(() => {
+    if (localStorage.getItem("roi_mktlive_cleaned")) return;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("roi_mktlive_")) {
+        try { const v = JSON.parse(localStorage.getItem(k)); if (v && !Array.isArray(v)) localStorage.setItem(k, "[]"); } catch { localStorage.setItem(k, "[]"); }
+      }
+    }
+    localStorage.setItem("roi_mktlive_cleaned", "1");
+  }, []);
   const sideW=sidebarCollapsed ? 60 : 220;
   const ctx=useMemo(() =>({
     route, navigate: setRoute, selectedProduct, setSelectedProduct,
@@ -3090,7 +3268,7 @@ export default function App() {
           {/* 설정 모달 */}
           {showSettings && (
             <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSettings(false)}>
-              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: 480, maxHeight: "80vh", overflowY: "auto", padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: 580, maxHeight: "85vh", overflowY: "auto", padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚙</div>
                   <div style={{ flex: 1 }}><div style={{ fontSize: 18, fontWeight: 800, color: "#0F172A" }}>설정</div></div>
@@ -3128,6 +3306,128 @@ export default function App() {
                     {settingsGeminiKey && <div style={{ fontSize: 10, color: "#10B981", marginTop: 3 }}>✓ 설정됨</div>}
                   </div>
                 </div>
+                {/* 엑셀 데이터 업로드 & AI 매칭 */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>📊 데이터 일괄 업로드 (엑셀)</div>
+                  <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 12 }}>엑셀 파일 업로드 → AI가 상품명을 자동 매칭 → 확인 후 일괄 적용</div>
+                  {[
+                    { type: "cost", icon: "📦", label: "상품 원가 목록", desc: "상품명, 원가(단가), 물류비, 수량 컬럼 포함", color: "#6366F1" },
+                    { type: "ad", icon: "📢", label: "채널별 광고 데이터", desc: "상품명, 채널, 광고비(금액) 컬럼 포함", color: "#F59E0B" },
+                    { type: "sales", icon: "💰", label: "채널별 매출 데이터", desc: "상품명, 채널, 매출(판매액), 수량 컬럼 포함", color: "#10B981" },
+                  ].map((sec) => (
+                    <div key={sec.type} style={{ marginBottom: 10, padding: "12px 14px", borderRadius: 10, border: `1px solid ${uploadData[sec.type] ? sec.color + "40" : "#E2E8F0"}`, background: uploadData[sec.type] ? sec.color + "06" : "#FAFBFC" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 14 }}>{sec.icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#0F172A" }}>{sec.label}</span>
+                        {matchApplied[sec.type] && <span style={{ fontSize: 10, color: "#10B981", fontWeight: 600 }}>✓ 적용됨</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 8 }}>{sec.desc}</div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <label style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${sec.color}30`, background: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", color: sec.color, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          📤 엑셀 업로드
+                          <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => { if (e.target.files[0]) { parseExcelUpload(e.target.files[0], sec.type); e.target.value = ""; } }} />
+                        </label>
+                        {uploadData[sec.type] && (
+                          <>
+                            <span style={{ fontSize: 10, color: "#64748B" }}>📄 {uploadData[sec.type].fileName} ({uploadData[sec.type].rows.length}행)</span>
+                            <button onClick={() => runAiMatching(sec.type)} disabled={!!matchLoading} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: matchLoading === sec.type ? "#94A3B8" : sec.color, color: "#fff", fontSize: 11, fontWeight: 700, cursor: matchLoading ? "wait" : "pointer" }}>
+                              {matchLoading === sec.type ? "⏳ 분석중..." : "🤖 AI 매칭"}
+                            </button>
+                            <button onClick={() => { setUploadData((prev) => ({ ...prev, [sec.type]: null })); if (matchResult?.type === sec.type) setMatchResult(null); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #FECACA", background: "#FEF2F2", fontSize: 10, cursor: "pointer", color: "#DC2626" }}>삭제</button>
+                          </>
+                        )}
+                      </div>
+                      {/* 매칭 결과 미리보기 */}
+                      {matchResult && matchResult.type === sec.type && (
+                        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "#fff", border: "1px solid #E2E8F0" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>🔗 AI 매칭 결과 ({matchResult.matches.length}건)</div>
+                          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                            <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "#F8FAFC", position: "sticky", top: 0 }}>
+                                  <th style={{ padding: "6px 8px", textAlign: "left", color: "#64748B", fontWeight: 600, borderBottom: "1px solid #E2E8F0" }}>엑셀 상품명</th>
+                                  <th style={{ padding: "6px 8px", textAlign: "left", color: "#64748B", fontWeight: 600, borderBottom: "1px solid #E2E8F0" }}>매칭 상품</th>
+                                  <th style={{ padding: "6px 8px", textAlign: "center", color: "#64748B", fontWeight: 600, borderBottom: "1px solid #E2E8F0", width: 50 }}>확신도</th>
+                                  <th style={{ padding: "6px 8px", textAlign: "center", color: "#64748B", fontWeight: 600, borderBottom: "1px solid #E2E8F0", width: 60 }}>변경</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {matchResult.matches.map((m, mi) => (
+                                  <tr key={mi} style={{ background: m.matchedSku ? (m.confidence >= 70 ? "#F0FDF4" : "#FFFBEB") : "#FEF2F2" }}>
+                                    <td style={{ padding: "5px 8px", borderBottom: "1px solid #F1F5F9", color: "#334155", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={m.excelName}>{m.excelName}</td>
+                                    <td style={{ padding: "5px 8px", borderBottom: "1px solid #F1F5F9", color: m.matchedSku ? "#0F172A" : "#DC2626", fontWeight: 600 }}>{m.matchedSku ? `[${m.matchedSku}] ${m.matchedName}` : "미매칭"}</td>
+                                    <td style={{ padding: "5px 8px", borderBottom: "1px solid #F1F5F9", textAlign: "center" }}>
+                                      <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 10, fontSize: 9, fontWeight: 700, background: m.confidence >= 70 ? "#DCFCE7" : m.confidence >= 40 ? "#FEF3C7" : "#FEE2E2", color: m.confidence >= 70 ? "#16A34A" : m.confidence >= 40 ? "#D97706" : "#DC2626" }}>{m.confidence}%</span>
+                                    </td>
+                                    <td style={{ padding: "5px 8px", borderBottom: "1px solid #F1F5F9", textAlign: "center" }}>
+                                      <select value={m.matchedSku} onChange={(e) => {
+                                        const newSku = e.target.value;
+                                        const prod = PRODUCTS.find((p) => p.sku === newSku);
+                                        setMatchResult((prev) => ({
+                                          ...prev,
+                                          matches: prev.matches.map((mm, mmi) => mmi === mi ? { ...mm, matchedSku: newSku, matchedName: prod ? prod.name : "(미매칭)", confidence: newSku ? 100 : 0, manual: true } : mm)
+                                        }));
+                                      }} style={{ fontSize: 9, padding: "2px 4px", borderRadius: 4, border: "1px solid #E2E8F0", maxWidth: 55 }}>
+                                        <option value="">미매칭</option>
+                                        {PRODUCTS.map((p) => <option key={p.sku} value={p.sku}>{p.sku}</option>)}
+                                      </select>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                            <span style={{ fontSize: 10, color: "#64748B" }}>
+                              매칭: <b style={{ color: "#10B981" }}>{matchResult.matches.filter((m) => m.matchedSku).length}</b>건 · 미매칭: <b style={{ color: "#DC2626" }}>{matchResult.matches.filter((m) => !m.matchedSku).length}</b>건
+                            </span>
+                            <button onClick={() => applyMatchedData(sec.type)} style={{ marginLeft: "auto", padding: "7px 18px", borderRadius: 8, border: "none", background: sec.color, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>✅ 일괄 적용</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {/* 적용 데이터 확인 */}
+                {(matchApplied.cost || matchApplied.ad || matchApplied.sales) && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>✅ 적용된 데이터 확인</div>
+                    <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Chrome DevTools(F12) → Application → Local Storage에서도 확인 가능</div>
+                    <div style={{ maxHeight: 180, overflowY: "auto", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+                      <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
+                        <thead><tr style={{ background: "#F8FAFC", position: "sticky", top: 0 }}>
+                          <th style={{ padding: "6px 8px", textAlign: "left", color: "#64748B", fontWeight: 600 }}>SKU</th>
+                          <th style={{ padding: "6px 8px", textAlign: "left", color: "#64748B", fontWeight: 600 }}>상품명</th>
+                          {matchApplied.cost && <th style={{ padding: "6px 8px", textAlign: "right", color: "#6366F1", fontWeight: 600 }}>원가</th>}
+                          {matchApplied.ad && <th style={{ padding: "6px 8px", textAlign: "right", color: "#F59E0B", fontWeight: 600 }}>광고비</th>}
+                          {matchApplied.sales && <th style={{ padding: "6px 8px", textAlign: "right", color: "#10B981", fontWeight: 600 }}>매출</th>}
+                        </tr></thead>
+                        <tbody>
+                          {PRODUCTS.filter((p) => {
+                            return (matchApplied.cost && localStorage.getItem("roi_costlive_" + p.sku)) ||
+                              (matchApplied.ad && localStorage.getItem("roi_mktlive_" + p.sku)) ||
+                              (matchApplied.sales && localStorage.getItem("roi_channels_" + p.sku));
+                          }).slice(0, 30).map((p) => {
+                            const cost = JSON.parse(localStorage.getItem("roi_costlive_" + p.sku) || "{}");
+                            const mkt = JSON.parse(localStorage.getItem("roi_mktlive_" + p.sku) || "[]");
+                            const ch = JSON.parse(localStorage.getItem("roi_channels_" + p.sku) || "[]");
+                            const mktTotal = Array.isArray(mkt) ? mkt.reduce((s, c) => s + (c.amount || 0), 0) : 0;
+                            const chTotal = Array.isArray(ch) ? ch.reduce((s, c) => s + (c.revenue || 0), 0) : 0;
+                            return (
+                              <tr key={p.sku} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                                <td style={{ padding: "5px 8px", fontFamily: "var(--mono)", fontWeight: 600, color: "#4F46E5" }}>{p.sku}</td>
+                                <td style={{ padding: "5px 8px", color: "#334155", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                                {matchApplied.cost && <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--mono)", color: "#0F172A" }}>{cost.unitCost ? cost.unitCost.toLocaleString() + "원" : "-"}</td>}
+                                {matchApplied.ad && <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--mono)", color: mktTotal > 0 ? "#D97706" : "#94A3B8" }}>{mktTotal > 0 ? mktTotal.toLocaleString() + "원" : "-"}</td>}
+                                {matchApplied.sales && <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--mono)", color: chTotal > 0 ? "#059669" : "#94A3B8" }}>{chTotal > 0 ? chTotal.toLocaleString() + "원" : "-"}</td>}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
                 {/* 데이터 관리 */}
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>💾 데이터 관리</div>
