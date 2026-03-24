@@ -136,7 +136,7 @@ const STATUS_COLOR={
 };
 const STATUS_MAP={"확대":"확대","유지":"유지","축소":"축소","stop":"중단"};
 const CHANNEL_COLORS={"쿠팡":"#E44D26","네이버":"#03C75A","스마트스토어":"#03C75A","자사몰":"#6366F1","기타":"#64748B"};
-const fmt=(v,t="num")=>{if(t==="krw")return`₩${(v/1e6).toFixed(1)}M`;if(t==="pct")return`${v.toFixed(1)}%`;if(t==="x")return`${v.toFixed(2)}x`; return (v/1e6).toFixed(1)+"M";};
+const fmt=(v,t="num")=>{if(t==="pct")return`${v.toFixed(1)}%`;if(t==="x")return`${v.toFixed(2)}x`; if(t==="krw"){if(Math.abs(v)>=1e8)return`₩${(v/1e8).toFixed(1)}억원`;return`₩${Math.round(v).toLocaleString()}원`;} if(Math.abs(v)>=1e8)return(v/1e8).toFixed(1)+"억원"; return Math.round(v).toLocaleString()+"원";};
 const MKT_CATEGORIES=[{ key:"influencer",label:"인플루언서",icon:"🎤",color:"#8B5CF6",desc:"유튜버,인스타그래머,틱톡커 협찬" },{ key:"sns",label:"SNS광고",icon:"📱",color:"#3B82F6",desc:"메타,틱톡,카카오 유료 광고" },{ key:"content",label:"촬영/콘텐츠",icon:"📸",color:"#EC4899",desc:"상품 촬영,상세페이지,영상 제작" },{ key:"review",label:"리뷰/체험단",icon:"⭐",color:"#F59E0B",desc:"체험단,리뷰 캠페인,시딩" },{ key:"promo",label:"프로모션",icon:"🏷️",color:"#10B981",desc:"할인쿠폰,기획전,번들딜" },{ key:"other",label:"기타",icon:"📋",color:"#64748B",desc:"기타 마케팅 비용" },];
 const MKT_CAT_MAP=Object.fromEntries(MKT_CATEGORIES.map((c)=> [c.key,c]));
 const PERIOD_OPTIONS=[
@@ -340,9 +340,16 @@ avgRoi: enriched.length > 0 ? enriched.reduce((s, p)=>s + p.metrics.annualROI, 0
 avgRoas: enriched.length > 0 ? enriched.reduce((s, p)=>s + p.metrics.combinedRoas, 0) / enriched.length:0,
 riskCount: enriched.filter((p) => p.metrics.status === "reduce" || p.metrics.status === "stop").length,
 }), [enriched]); const  handleSort=k =>{ if (sortKey === k) setSortDir((d) => d === "desc" ? "asc":"desc"); else { setSortKey(k); setSortDir("desc"); } };
-const SH=({ label, field, w }) =>(
-<th onClick={()=>handleSort(field)} style={{ p:"9px 10px", textAlign:"right", fontSize: 11, fontWeight: 600, color: sortKey === field ? "#4F46E5":"#64748B", cursor:"pointer", whiteSpace:"nowrap", borderBottom:"2px solid #E2E8F0", width: w }}>{label} {sortKey === field && <span style={{ fontSize: 9 }}>{sortDir === "desc" ? "▼":"▲"}</span>}</th>
+const [mainColWidths, setMainColWidths] = useState({ product: 220, score: 80, revenue: 90, profit: 90, margin: 65, periodROI: 75, annualROI: 85, roas: 65, turnover: 60, status: 65, trend: 70 });
+const handleMainColResize = (colKey, e) => { e.preventDefault(); e.stopPropagation(); const startX = e.clientX; const startW = mainColWidths[colKey]; const onMove = (ev) => { const diff = ev.clientX - startX; setMainColWidths(prev => ({ ...prev, [colKey]: Math.max(50, startW + diff) })); }; const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); }; document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp); };
+const ResizeHandle = ({ colKey, handler }) => (<div onMouseDown={(e) => handler(colKey, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 4, cursor: "col-resize", background: "transparent", zIndex: 1 }} onMouseEnter={(e) => e.currentTarget.style.background = "#C7D2FE"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"} />);
+const SH=({ label, field, w, colKey }) =>(
+<th onClick={()=>handleSort(field)} style={{ padding:"9px 10px", textAlign:"right", fontSize: 11, fontWeight: 600, color: sortKey === field ? "#4F46E5":"#64748B", cursor:"pointer", whiteSpace:"nowrap", borderBottom:"2px solid #E2E8F0", borderRight:"1px solid #F1F5F9", width: colKey ? mainColWidths[colKey] : w, minWidth: 50, position: "relative", userSelect: "none" }}>{label} {sortKey === field && <span style={{ fontSize: 9 }}>{sortDir === "desc" ? "▼":"▲"}</span>}{colKey && <ResizeHandle colKey={colKey} handler={handleMainColResize} />}</th>
 );
+  const [topColWidths, setTopColWidths] = useState({ name: 180, revenue: 100, profit: 100, margin: 80, roi: 80, returnRate: 80 });
+  const topColDrag = useRef(null);
+  const handleTopColResizeStart = (colKey, e) => { e.preventDefault(); e.stopPropagation(); const startX = e.clientX; const startW = topColWidths[colKey]; const onMove = (ev) => { const diff = ev.clientX - startX; setTopColWidths(prev => ({ ...prev, [colKey]: Math.max(60, startW + diff) })); }; const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); }; document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp); };
+  const TopResizeTh = ({ colKey, label, align }) => (<th style={{ padding: "6px 8px", textAlign: align || "right", color: "#64748B", fontWeight: 600, width: topColWidths[colKey], minWidth: 60, position: "relative", userSelect: "none" }}>{label}<div onMouseDown={(e) => handleTopColResizeStart(colKey, e)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 5, cursor: "col-resize", background: "transparent" }} onMouseEnter={(e) => e.currentTarget.style.background = "#4F46E5"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"} /></th>);
   const categories = [...new Set(enriched.map((p) => p.category))];
   const avgReturnRate = enriched.length > 0 ? enriched.reduce((s, p) => s + p.metrics.weightedReturnRate, 0) / enriched.length : 0;
   const expandCount = enriched.filter((p) => p.metrics.status === "확대").length;
@@ -420,14 +427,14 @@ const SH=({ label, field, w }) =>(
   <Card>
     <div style={{ fontSize: 13, fontWeight: 700, color: "#0F172A", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><span>🏆</span> 상품 성과 테이블 TOP 15</div>
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
         <thead><tr style={{ background: "#F8FAFC" }}>
-          <th style={{ padding: "6px 8px", textAlign: "left", color: "#64748B", fontWeight: 600 }}>상품명</th>
-          <th style={{ padding: "6px 8px", textAlign: "right", color: "#64748B", fontWeight: 600 }}>총매출</th>
-          <th style={{ padding: "6px 8px", textAlign: "right", color: "#64748B", fontWeight: 600 }}>영업이익</th>
-          <th style={{ padding: "6px 8px", textAlign: "right", color: "#64748B", fontWeight: 600 }}>이익률</th>
-          <th style={{ padding: "6px 8px", textAlign: "right", color: "#64748B", fontWeight: 600 }}>ROI</th>
-          <th style={{ padding: "6px 8px", textAlign: "right", color: "#64748B", fontWeight: 600 }}>반품률</th>
+          <TopResizeTh colKey="name" label="상품명" align="left" />
+          <TopResizeTh colKey="revenue" label="총매출" />
+          <TopResizeTh colKey="profit" label="영업이익" />
+          <TopResizeTh colKey="margin" label="이익률" />
+          <TopResizeTh colKey="roi" label="ROI" />
+          <TopResizeTh colKey="returnRate" label="반품률" />
         </tr></thead>
         <tbody>
           {[...enriched].sort((a, b) => b.metrics.totalRevenue - a.metrics.totalRevenue).slice(0, 15).map((p, i) => {
@@ -583,22 +590,22 @@ const SH=({ label, field, w }) =>(
 </div>
 <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2E8F0", overflow: "hidden" }}>
 <div style={{overflowX:"auto"}}>
-<table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+<table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100, tableLayout: "fixed" }}>
 <thead><tr style={{ background: "#FAFBFC" }}>
-<th style={{ padding: "9px 10px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", width: 220 }}>상품</th>
-<SH label="투자점수" field="investmentScore" w={80} />
-<SH label="총매출" field="totalRevenue" w={90} />
-<SH label="영업이익" field="totalOpProfit" w={90} />
-<SH label="이익률" field="opMargin" w={65} />
-<SH label={`ROI(${periodDays}일)`} field="periodROI" w={75} />
-<SH label="연환산 ROI" field="annualROI" w={85} />
-<SH label="ROAS" field="combinedRoas" w={65} />
-<SH label="회전율" field="annualTurnover" w={60} />
-<th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", width: 65 }}>상태</th>
-<th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", width: 70 }}>추이</th>
+<th style={{ padding: "9px 10px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", borderRight: "1px solid #F1F5F9", width: mainColWidths.product, minWidth: 50, position: "relative", userSelect: "none" }}>상품<ResizeHandle colKey="product" handler={handleMainColResize} /></th>
+<SH label="투자점수" field="investmentScore" colKey="score" />
+<SH label="총매출" field="totalRevenue" colKey="revenue" />
+<SH label="영업이익" field="totalOpProfit" colKey="profit" />
+<SH label="이익률" field="opMargin" colKey="margin" />
+<SH label={`ROI(${periodDays}일)`} field="periodROI" colKey="periodROI" />
+<SH label="연환산 ROI" field="annualROI" colKey="annualROI" />
+<SH label="ROAS" field="combinedRoas" colKey="roas" />
+<SH label="회전율" field="annualTurnover" colKey="turnover" />
+<th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", borderRight: "1px solid #F1F5F9", width: mainColWidths.status, minWidth: 50, position: "relative", userSelect: "none" }}>상태<ResizeHandle colKey="status" handler={handleMainColResize} /></th>
+<th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748B", borderBottom: "2px solid #E2E8F0", width: mainColWidths.trend, minWidth: 50, position: "relative", userSelect: "none" }}>추이<ResizeHandle colKey="trend" handler={handleMainColResize} /></th>
 </tr></thead>
 <tbody>
-{paginatedProducts.map((p) => { const m=p.metrics; const sc=(p.weeklyTrend[3]?.opProfit??0)>=(p.weeklyTrend[0]?.opProfit??0)? "#10B981":"#EF4444"; return <tr key={p.id} onClick={()=>{setSelectedProduct(p);navigate("product");}} style={{cursor:"pointer",transition:"background 0.12s"}} onMouseEnter={e=>e.currentTarget.style.background="#F8FAFC"} onMouseLeave={e=>e.currentTarget.style.background=""}><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9"}}><div style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>{p.name}</div><div style={{display:"flex",gap:4,marginTop:2}}><span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F1F5F9",color:"#64748B"}}>{p.sku}</span>{p.channels.map((c)=> <ChannelBadge key={c.name} name={c.name} />)}</div></td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",textAlign:"center"}}><MiniGauge score={m.investmentScore} /></td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right"}}>{fmt(m.totalRevenue)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:700,color:m.totalOpProfit>=0? "#10B981":"#EF4444",textAlign:"right"}}>{fmt(m.totalOpProfit)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:600,color:m.opMargin>=15? "#10B981":m.opMargin>=5? "#F59E0B":"#EF4444",textAlign:"right"}}>{fmtPct(m.opMargin)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right",color:m.periodROI>=0? "#0F172A":"#EF4444"}}>{fmtPct(m.periodROI)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:800,textAlign:"right",color:m.annualROI>=100? "#10B981":m.annualROI>=30? "#3B82F6":"#EF4444"}}>{fmtPct(m.annualROI)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right",color:m.combinedRoas>=m.beRoas? "#10B981":"#EF4444"}}>{fmtPct(m.combinedRoas)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right"}}>{m.annualTurnover.toFixed(1)}</td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",textAlign:"center"}}><StatusBadge status={m.status} /></td><td style={{padding:"10px",borderBottom:"1px solid #F1F5F9",textAlign:"center"}}><Sparkline data={p.weeklyProfit} color={sc} /></td></tr>;})}
+{paginatedProducts.map((p) => { const m=p.metrics; const bs="1px solid #F1F5F9"; const br="1px solid #F5F5F5"; const sc=(p.weeklyTrend[3]?.opProfit??0)>=(p.weeklyTrend[0]?.opProfit??0)? "#10B981":"#EF4444"; return <tr key={p.id} onClick={()=>{setSelectedProduct(p);navigate("product");}} style={{cursor:"pointer",transition:"background 0.12s"}} onMouseEnter={e=>e.currentTarget.style.background="#F8FAFC"} onMouseLeave={e=>e.currentTarget.style.background=""}><td style={{padding:"10px",borderBottom:bs,borderRight:br,overflow:"hidden"}}><div style={{fontSize:13,fontWeight:600,color:"#0F172A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div><div style={{display:"flex",gap:4,marginTop:2}}><span style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F1F5F9",color:"#64748B"}}>{p.sku}</span>{p.channels.map((c)=> <ChannelBadge key={c.name} name={c.name} />)}</div></td><td style={{padding:"10px",borderBottom:bs,borderRight:br}}><div style={{display:"flex",justifyContent:"center",alignItems:"center"}}><MiniGauge score={m.investmentScore} /></div></td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right"}}>{fmt(m.totalRevenue)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:700,color:m.totalOpProfit>=0? "#10B981":"#EF4444",textAlign:"right"}}>{fmt(m.totalOpProfit)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:600,color:m.opMargin>=15? "#10B981":m.opMargin>=5? "#F59E0B":"#EF4444",textAlign:"right"}}>{fmtPct(m.opMargin)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right",color:m.periodROI>=0? "#0F172A":"#EF4444"}}>{fmtPct(m.periodROI)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:800,textAlign:"right",color:m.annualROI>=100? "#10B981":m.annualROI>=30? "#3B82F6":"#EF4444"}}>{fmtPct(m.annualROI)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right",color:m.combinedRoas>=m.beRoas? "#10B981":"#EF4444"}}>{fmtPct(m.combinedRoas)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,fontFamily:"var(--mono)",fontSize:12,fontWeight:600,textAlign:"right"}}>{m.annualTurnover.toFixed(1)}</td><td style={{padding:"10px",borderBottom:bs,borderRight:br,textAlign:"center"}}><StatusBadge status={m.status} /></td><td style={{padding:"10px",borderBottom:bs,textAlign:"center"}}><Sparkline data={p.weeklyProfit} color={sc} /></td></tr>;})}
 </tbody>
 </table>
 </div>
