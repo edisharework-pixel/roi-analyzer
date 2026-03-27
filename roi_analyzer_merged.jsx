@@ -396,7 +396,7 @@ const SH=({ label, field, w, colKey }) =>(
 <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: 16 }}>
   <KpiCard icon="💰" label="총 투자금액" value={fmtW(totals.investment)} sub={`회수율 ${totals.investment > 0 ? ((totals.profit / totals.investment) * 100).toFixed(1) : 0}%`} status={totals.profit > 0 ? "good" : "danger"} />
   <KpiCard icon="📈" label="총 순이익" value={fmtW(totals.profit)} sub={totals.profit > 0 ? "흑자" : "적자"} status={totals.profit > 0 ? "good" : "danger"} />
-  <KpiCard icon="🎯" label={`평균 ROI (${periodDays}일)`} value={fmtPct(totals.avgRoi / (365 / periodDays))} sub={`연환산 ${fmtPct(totals.avgRoi)}`} status="info" />
+  <KpiCard icon="🎯" label="연환산 평균 ROI" value={fmtPct(totals.avgRoi)} sub={`${periodDays}일 기준 ${fmtPct(totals.avgRoi / (365 / periodDays))}`} status="info" />
   <KpiCard icon="📢" label="평균 ROAS" value={fmtPct(totals.avgRoas)} sub="손익분기 200% 기준" status={totals.avgRoas >= 200 ? "good" : "warn"} />
   <KpiCard icon="📦" label="총 상품수" value={enriched.length + "개"} sub={`확대 ${expandCount} | 유지 ${maintainCount} | 축소 ${reduceCount}`} status="info" />
   <KpiCard icon="📦" label="평균 반품률" value={fmtPct(avgReturnRate)} sub={avgReturnRate > 10 ? `▼ ${highReturn.length}개 상품 10%↑` : "양호"} status={avgReturnRate <= 3 ? "good" : avgReturnRate <= 8 ? "warn" : "danger"} />
