@@ -949,7 +949,7 @@ ${preview}
       alert(`[${rule.platform}] CSV 분석 완료!\n${rule.description}\n\n매출: ₩${Math.round(summary.totalRevenue).toLocaleString()}\n수량: ${Math.round(summary.totalQty).toLocaleString()}건\n\n✅ 매핑 규칙이 저장되었습니다. 다음부터 즉시 처리됩니다.`);
     } catch (err) { alert("CSV AI 분석 오류: " + err.message); } finally { setCsvUploading(false); }
   };
-  const [showExtraCostForm, setShowExtraCostForm] = useState(false);  const [newCostLabel, setNewCostLabel] = useState("");  const [newCostAmount, setNewCostAmount] = useState("");  const [newCostCategory, setNewCostCategory] = useState("influencer");  const [newCostExpectedRevenue, setNewCostExpectedRevenue] = useState("");  const [newCostMemo, setNewCostMemo] = useState("");  const [newCostContacts, setNewCostContacts] = useState([]);  const totalExtraCost=extraCosts.reduce((s, c)=>s + c.amount, 0);  const [adChg, setAdChg] = useState(0);  const [retChg, setRetChg] = useState(0);  const [priceChg, setPriceChg] = useState(0);  const [targetRoas, setTargetRoas] = useState(0);  const [savedScenarios, setSavedScenarios] = useState([]); const  effectiveProduct=useMemo(()=>{
+  const [showExtraCostForm, setShowExtraCostForm] = useState(false);  const [newCostLabel, setNewCostLabel] = useState("");  const [newCostAmount, setNewCostAmount] = useState("");  const [newCostCategory, setNewCostCategory] = useState("influencer");  const [newCostExpectedRevenue, setNewCostExpectedRevenue] = useState("");  const [newCostMemo, setNewCostMemo] = useState("");  const [newCostContacts, setNewCostContacts] = useState([]);  const [newCostStartDate, setNewCostStartDate] = useState("");  const [newCostEndDate, setNewCostEndDate] = useState("");  const [newCostStatus, setNewCostStatus] = useState("planned");  const totalExtraCost=extraCosts.reduce((s, c)=>s + c.amount, 0);  const [adChg, setAdChg] = useState(0);  const [retChg, setRetChg] = useState(0);  const [priceChg, setPriceChg] = useState(0);  const [targetRoas, setTargetRoas] = useState(0);  const [savedScenarios, setSavedScenarios] = useState([]); const  effectiveProduct=useMemo(()=>{
 let prod = { ...p, importQty: editImportQty, unitCost: editUnitCost, logisticsCostPerUnit: editLogistics, investment: editImportQty * (editUnitCost + editLogistics) };
 if (investmentOverride) prod.investmentOverride = investmentOverride;
 if (totalExtraCost > 0 && prod.channels.length > 0) {
@@ -1706,6 +1706,28 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
                       <button onClick={() => setNewCostContacts((prev) => [...prev, { name: "", channel: "", link: "", cost: "" }])}
                         style={{ padding: "3px 10px", borderRadius: 6, border: "1px dashed #C7D2FE", background: "#EEF2FF", fontSize: 10, color: "#4F46E5", cursor: "pointer", fontWeight: 600 }}>+ 인플루언서 추가</button>
                     </div>}
+                    {/* 일정/상태 */}
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>📅 시작일</div>
+                        <input type="date" value={newCostStartDate} onChange={(e) => setNewCostStartDate(e.target.value)}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", color: "#0F172A", fontFamily: "var(--mono)" }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>📅 종료일</div>
+                        <input type="date" value={newCostEndDate} onChange={(e) => setNewCostEndDate(e.target.value)}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", color: "#0F172A", fontFamily: "var(--mono)" }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "#94A3B8", marginBottom: 3 }}>상태</div>
+                        <select value={newCostStatus} onChange={(e) => setNewCostStatus(e.target.value)}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid #E2E8F0", fontSize: 12, outline: "none", color: "#0F172A", background: "#fff" }}>
+                          <option value="planned">📋 예정</option>
+                          <option value="inprogress">🔄 진행중</option>
+                          <option value="done">✅ 완료</option>
+                        </select>
+                      </div>
+                    </div>
                     {/* 메모 */}
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -1730,13 +1752,13 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
                         const expRev = parseInt(newCostExpectedRevenue) || 0;
                         const contacts = newCostContacts.filter((c) => c.name.trim());
                         const memo = newCostMemo.trim() || null;
-                        setExtraCosts((prev) => [...prev, { id: Date.now(), category: newCostCategory, label: newCostLabel.trim(), amount: amt, expectedRevenue: expRev, memo, contacts: contacts.length > 0 ? contacts : null }]);
+                        setExtraCosts((prev) => [...prev, { id: Date.now(), category: newCostCategory, label: newCostLabel.trim(), amount: amt, expectedRevenue: expRev, memo, contacts: contacts.length > 0 ? contacts : null, startDate: newCostStartDate || null, endDate: newCostEndDate || null, status: newCostStatus }]);
                         if (memo) {
                           const memoKey = "roi_memo_" + p.sku + "_" + newCostCategory;
                           const prev = JSON.parse(localStorage.getItem(memoKey) || "[]");
                           localStorage.setItem(memoKey, JSON.stringify([{ text: memo, date: new Date().toISOString().slice(0,10) }, ...prev].slice(0,20)));
                         }
-                        setNewCostLabel(""); setNewCostAmount(""); setNewCostExpectedRevenue(""); setNewCostMemo(""); setNewCostContacts([]);
+                        setNewCostLabel(""); setNewCostAmount(""); setNewCostExpectedRevenue(""); setNewCostMemo(""); setNewCostContacts([]); setNewCostStartDate(""); setNewCostEndDate(""); setNewCostStatus("planned");
                       }} style={{ padding: "8px 28px", borderRadius: 8, border: "none", background: activeCat.color, color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>💾 저장</button>
                     </div>
                   </div>
@@ -1881,6 +1903,214 @@ returnRate: +(metrics.weightedReturnRate + Math.random() * 0.5 - 0.25).toFixed(1
       {activeTab === "mkthistory" && (
         <div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {/* 마케팅 일정 관리 섹션 */}
+            {(() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const todayDate = new Date(today);
+              const statusConfig = { done: { color: "#10B981", bg: "#ECFDF5", border: "#A7F3D0", label: "✅ 완료", icon: "✅" }, inprogress: { color: "#3B82F6", bg: "#EFF6FF", border: "#93C5FD", label: "🔄 진행중", icon: "🔄" }, planned: { color: "#F59E0B", bg: "#FFFBEB", border: "#FDE68A", label: "📋 예정", icon: "📋" } };
+              const allItems = extraCosts.map(c => {
+                const s = c.status || "planned";
+                const sDate = c.startDate || null;
+                const eDate = c.endDate || null;
+                let daysUntilStart = null;
+                if (sDate) { daysUntilStart = Math.round((new Date(sDate) - todayDate) / 86400000); }
+                let daysRemaining = null;
+                if (eDate) { daysRemaining = Math.round((new Date(eDate) - todayDate) / 86400000); }
+                return { ...c, sDate, eDate, daysUntilStart, daysRemaining, stCfg: statusConfig[s] || statusConfig.planned };
+              });
+              const inProgress = allItems.filter(c => (c.status || "planned") === "inprogress");
+              const planned = allItems.filter(c => (c.status || "planned") === "planned");
+              const done = allItems.filter(c => (c.status || "planned") === "done");
+              const upcoming = planned.filter(c => c.daysUntilStart !== null && c.daysUntilStart >= 0 && c.daysUntilStart <= 14).sort((a, b) => a.daysUntilStart - b.daysUntilStart);
+              const overdue = inProgress.filter(c => c.daysRemaining !== null && c.daysRemaining < 0);
+              const ganttItems = allItems.filter(c => c.sDate || c.eDate);
+              const renderItemCard = (item) => {
+                const cat = MKT_CAT_MAP[item.category] || { icon: "📋", label: item.category, color: "#64748B" };
+                const st = item.stCfg;
+                const isOverdue = (item.status || "planned") === "inprogress" && item.daysRemaining !== null && item.daysRemaining < 0;
+                return (
+                  <div key={item.id} style={{ padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${isOverdue ? "#FCA5A5" : st.border}`, background: isOverdue ? "#FEF2F2" : st.bg, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 20 }}>{cat.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", marginBottom: 2 }}>{item.label}</div>
+                      <div style={{ fontSize: 10, color: "#64748B", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <span>{cat.label}</span>
+                        <span style={{ fontFamily: "var(--mono)" }}>₩{item.amount.toLocaleString()}</span>
+                        {item.sDate && <span>📅 {item.sDate}{item.eDate ? ` ~ ${item.eDate}` : ""}</span>}
+                      </div>
+                      {item.memo && <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>💬 {item.memo}</div>}
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      {isOverdue && <div style={{ fontSize: 10, fontWeight: 800, color: "#DC2626", background: "#FEE2E2", padding: "2px 8px", borderRadius: 6, marginBottom: 2 }}>⚠️ {Math.abs(item.daysRemaining)}일 초과</div>}
+                      {!isOverdue && item.daysRemaining !== null && (item.status || "planned") === "inprogress" && <div style={{ fontSize: 10, fontWeight: 700, color: item.daysRemaining <= 3 ? "#DC2626" : "#3B82F6" }}>{item.daysRemaining}일 남음</div>}
+                      {(item.status || "planned") === "planned" && item.daysUntilStart !== null && <div style={{ fontSize: 10, fontWeight: 700, color: item.daysUntilStart <= 3 ? "#DC2626" : item.daysUntilStart <= 7 ? "#F59E0B" : "#64748B" }}>{item.daysUntilStart === 0 ? "오늘 시작" : `${item.daysUntilStart}일 후 시작`}</div>}
+                      <button onClick={() => { const next = (item.status || "planned") === "planned" ? "inprogress" : (item.status || "planned") === "inprogress" ? "done" : "planned"; setExtraCosts(prev => prev.map(c => c.id === item.id ? { ...c, status: next } : c)); }}
+                        style={{ marginTop: 4, padding: "3px 10px", borderRadius: 6, border: `1px solid ${st.color}40`, background: st.color + "15", color: st.color, fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+                        {(item.status || "planned") === "planned" ? "▶ 시작" : (item.status || "planned") === "inprogress" ? "✓ 완료" : "↩ 재시작"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              };
+              return (<>
+                {/* 알람: 곧 시작할 예정 항목 + 기한 초과 항목 */}
+                {(upcoming.length > 0 || overdue.length > 0) && (
+                  <Card style={{ gridColumn: "1 / -1", border: "1.5px solid #FDE68A", background: "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)" }}>
+                    <SectionTitle icon="🔔">알림</SectionTitle>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {overdue.map(item => {
+                        const cat = MKT_CAT_MAP[item.category] || { icon: "📋", label: item.category, color: "#64748B" };
+                        return (
+                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+                            <span style={{ fontSize: 18 }}>🚨</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#DC2626" }}>{cat.icon} {item.label}</span>
+                              <span style={{ fontSize: 11, color: "#991B1B", marginLeft: 8 }}>종료 예정일({item.eDate})이 <b>{Math.abs(item.daysRemaining)}일</b> 초과되었습니다</span>
+                            </div>
+                            <button onClick={() => setExtraCosts(prev => prev.map(c => c.id === item.id ? { ...c, status: "done" } : c))}
+                              style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: "#DC2626", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>✓ 완료처리</button>
+                          </div>
+                        );
+                      })}
+                      {upcoming.map(item => {
+                        const cat = MKT_CAT_MAP[item.category] || { icon: "📋", label: item.category, color: "#64748B" };
+                        const urgency = item.daysUntilStart <= 3 ? { bg: "#FEE2E2", border: "#FCA5A5", color: "#DC2626", text: "긴급" } : item.daysUntilStart <= 7 ? { bg: "#FEF3C7", border: "#FDE68A", color: "#D97706", text: "주의" } : { bg: "#EFF6FF", border: "#93C5FD", color: "#3B82F6", text: "예정" };
+                        return (
+                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: urgency.bg, border: `1px solid ${urgency.border}` }}>
+                            <span style={{ fontSize: 18 }}>{item.daysUntilStart <= 3 ? "⏰" : item.daysUntilStart <= 7 ? "📢" : "📌"}</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontSize: 10, fontWeight: 800, color: urgency.color, background: urgency.color + "15", padding: "1px 6px", borderRadius: 4, marginRight: 6 }}>{urgency.text}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#0F172A" }}>{cat.icon} {item.label}</span>
+                              <span style={{ fontSize: 11, color: "#64748B", marginLeft: 8 }}>
+                                {item.daysUntilStart === 0 ? "오늘 시작!" : `${item.daysUntilStart}일 후 시작 (${item.sDate})`}
+                              </span>
+                            </div>
+                            <button onClick={() => setExtraCosts(prev => prev.map(c => c.id === item.id ? { ...c, status: "inprogress" } : c))}
+                              style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>▶ 시작</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
+                {/* 진행중 항목 */}
+                {inProgress.length > 0 && (
+                  <Card style={{ gridColumn: "1 / -1", border: "1.5px solid #93C5FD" }}>
+                    <SectionTitle icon="🔄">진행중 ({inProgress.length}건) — 총 ₩{inProgress.reduce((s, c) => s + c.amount, 0).toLocaleString()}</SectionTitle>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+                      {inProgress.map(renderItemCard)}
+                    </div>
+                  </Card>
+                )}
+                {/* 예정 항목 */}
+                {planned.length > 0 && (
+                  <Card style={{ gridColumn: "1 / -1", border: "1.5px solid #FDE68A" }}>
+                    <SectionTitle icon="📋">예정 ({planned.length}건) — 총 ₩{planned.reduce((s, c) => s + c.amount, 0).toLocaleString()}</SectionTitle>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+                      {planned.map(renderItemCard)}
+                    </div>
+                  </Card>
+                )}
+                {/* 완료 항목 */}
+                {done.length > 0 && (
+                  <Card style={{ gridColumn: "1 / -1" }}>
+                    <SectionTitle icon="✅">완료 ({done.length}건) — 총 ₩{done.reduce((s, c) => s + c.amount, 0).toLocaleString()}</SectionTitle>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+                      {done.map(renderItemCard)}
+                    </div>
+                  </Card>
+                )}
+                {/* 간트 차트 타임라인 */}
+                {ganttItems.length > 0 && (() => {
+                  const allDates = ganttItems.flatMap(c => [c.sDate, c.eDate].filter(Boolean));
+                  let minD = allDates.reduce((a, b) => a < b ? a : b, today);
+                  let maxD = allDates.reduce((a, b) => a > b ? a : b, today);
+                  const padD = 10;
+                  const minDate = new Date(minD); minDate.setDate(minDate.getDate() - padD);
+                  const maxDate = new Date(maxD); maxDate.setDate(maxDate.getDate() + padD);
+                  const totalDays = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+                  const getPos = (dateStr) => { const d = new Date(dateStr); return Math.max(0, Math.min(100, ((d - minDate) / 86400000 / totalDays) * 100)); };
+                  const todayPos = getPos(today);
+                  const weeks = []; const wCur = new Date(minDate);
+                  const dayOfWeek = wCur.getDay(); wCur.setDate(wCur.getDate() - dayOfWeek + 1);
+                  while (wCur <= maxDate) { const pos = getPos(wCur.toISOString().slice(0,10)); if (pos >= 0 && pos <= 100) weeks.push({ pos }); wCur.setDate(wCur.getDate() + 7); }
+                  const months = []; const mCur = new Date(minDate); mCur.setDate(1);
+                  while (mCur <= maxDate) { const label = `${mCur.getFullYear()}.${String(mCur.getMonth()+1).padStart(2,"0")}`; const pos = getPos(mCur.toISOString().slice(0,10)); if (pos >= 0 && pos <= 100) months.push({ label, pos }); mCur.setMonth(mCur.getMonth() + 1); }
+                  const sorted = [...ganttItems].sort((a, b) => { const order = { inprogress: 0, planned: 1, done: 2 }; const oa = order[a.status || "planned"] ?? 1; const ob = order[b.status || "planned"] ?? 1; if (oa !== ob) return oa - ob; return (a.sDate || a.eDate || "").localeCompare(b.sDate || b.eDate || ""); });
+                  return (
+                    <Card style={{ gridColumn: "1 / -1" }}>
+                      <SectionTitle icon="📅">마케팅 일정 타임라인</SectionTitle>
+                      <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                        {[{k:"inprogress",l:"진행중",c:"#3B82F6"},{k:"planned",l:"예정",c:"#F59E0B"},{k:"done",l:"완료",c:"#10B981"}].map(s => (
+                          <span key={s.k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#64748B" }}>
+                            <span style={{ width: 12, height: 6, borderRadius: 3, background: s.c, display: "inline-block" }} /> {s.l}
+                          </span>
+                        ))}
+                        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#EF4444" }}>
+                          <span style={{ width: 2, height: 10, background: "#EF4444", display: "inline-block" }} /> 오늘 ({today})
+                        </span>
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <div style={{ position: "relative", minWidth: 700, minHeight: sorted.length * 38 + 50, borderRadius: 10, border: "1px solid #E2E8F0", background: "#FAFBFC" }}>
+                          {/* 주 구분선 */}
+                          {weeks.map((w, i) => <div key={i} style={{ position: "absolute", left: w.pos + "%", top: 28, bottom: 0, width: 1, background: "#F1F5F9", zIndex: 0 }} />)}
+                          {/* 월 구분선 + 라벨 */}
+                          {months.map((m, i) => (
+                            <div key={i} style={{ position: "absolute", left: m.pos + "%", top: 0, bottom: 0, width: 1, background: "#E2E8F0", zIndex: 1 }}>
+                              <span style={{ position: "absolute", top: 4, left: 6, fontSize: 9, color: "#94A3B8", whiteSpace: "nowrap", fontWeight: 700 }}>{m.label}</span>
+                            </div>
+                          ))}
+                          {/* 오늘 표시선 */}
+                          <div style={{ position: "absolute", left: todayPos + "%", top: 0, bottom: 0, width: 2, background: "#EF4444", zIndex: 4, opacity: 0.8 }}>
+                            <span style={{ position: "absolute", top: 4, right: 6, fontSize: 8, color: "#EF4444", fontWeight: 800, whiteSpace: "nowrap" }}>TODAY</span>
+                          </div>
+                          {/* 간트 바 */}
+                          {sorted.map((item, idx) => {
+                            const cat = MKT_CAT_MAP[item.category] || { icon: "📋", label: item.category, color: "#64748B" };
+                            const st = statusConfig[item.status || "planned"];
+                            const sD = item.sDate || item.eDate;
+                            const eD = item.eDate || item.sDate;
+                            const left = getPos(sD);
+                            const right = getPos(eD);
+                            const width = Math.max(2, right - left);
+                            const isOverdue = (item.status || "planned") === "inprogress" && item.daysRemaining !== null && item.daysRemaining < 0;
+                            const barColor = isOverdue ? "#EF4444" : st.color;
+                            return (
+                              <div key={item.id} style={{ position: "absolute", top: 28 + idx * 38, left: 0, right: 0, height: 34, zIndex: 2 }}>
+                                {/* 라벨 (바 왼쪽) */}
+                                <div style={{ position: "absolute", right: (100 - left + 0.5) + "%", top: 4, fontSize: 10, fontWeight: 600, color: "#64748B", whiteSpace: "nowrap", textAlign: "right", paddingRight: 4 }}>
+                                  {cat.icon} {item.label.length > 12 ? item.label.slice(0,12) + "…" : item.label}
+                                </div>
+                                {/* 바 */}
+                                <div style={{ position: "absolute", left: left + "%", width: width + "%", top: 3, height: 24, borderRadius: 6, background: `linear-gradient(90deg, ${barColor}50, ${barColor}30)`, border: `1.5px solid ${barColor}`, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, overflow: "hidden", cursor: "pointer", minWidth: 24, transition: "all 0.2s" }}
+                                  title={`${cat.icon} ${item.label}\n${sD} ~ ${eD}\n${st.label} | ₩${item.amount.toLocaleString()}${item.memo ? "\n" + item.memo : ""}`}
+                                  onClick={() => { const next = (item.status || "planned") === "planned" ? "inprogress" : (item.status || "planned") === "inprogress" ? "done" : "planned"; setExtraCosts(prev => prev.map(c => c.id === item.id ? { ...c, status: next } : c)); }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: barColor, whiteSpace: "nowrap" }}>₩{(item.amount / 10000).toFixed(0)}만</span>
+                                  {isOverdue && <span style={{ fontSize: 8, fontWeight: 800, color: "#DC2626" }}>⚠️초과</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 10, color: "#94A3B8", display: "flex", gap: 8 }}>
+                        <span>💡 바를 클릭하면 상태가 변경됩니다 (예정→진행중→완료)</span>
+                        <span>|</span>
+                        <span>마케팅 효율·비용 탭에서 항목 등록 시 시작일/종료일을 입력하세요</span>
+                      </div>
+                    </Card>
+                  );
+                })()}
+                {/* 항목이 없을 때 안내 */}
+                {allItems.length === 0 && (
+                  <Card style={{ gridColumn: "1 / -1", textAlign: "center", padding: 40 }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>📅</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#64748B", marginBottom: 4 }}>등록된 마케팅 항목이 없습니다</div>
+                    <div style={{ fontSize: 12, color: "#94A3B8" }}>마케팅 효율·비용 탭에서 항목을 추가하고 시작일/종료일을 입력하면 일정 관리가 가능합니다</div>
+                  </Card>
+                )}
+              </>);
+            })()}
             {/* 월별 ROAS 추이 (쿠팡광고 vs 전체) */}
             <Card style={{gridColumn:"1 / -1"}}>
               <SectionTitle icon="📈">월별 ROAS 추이 (12개월)</SectionTitle>
