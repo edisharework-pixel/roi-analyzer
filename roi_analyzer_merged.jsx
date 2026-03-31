@@ -149,7 +149,9 @@ return { ...ch,commission,cogs,opProfit,opMargin,roas,otherCost };
 }
 function calcProductMetrics(product,periodDays = 30,channelMode = "전체") { const channels=product.channels || [];
 let filtered = channels;
-if (channelMode === "쿠팡") filtered = channels.filter((c) => c.name === "쿠팡"); else if (channelMode === "네이버") filtered = channels.filter((c) => c.name === "네이버" || c.name === "스마트스토어"); else if (channelMode === "쿠팡+네이버") filtered = channels.filter((c) => c.name === "쿠팡" || c.name === "네이버" || c.name === "스마트스토어"); else if (channelMode === "자사몰") filtered = channels.filter((c) => c.name === "자사몰"); else if (channelMode === "기타") filtered = channels.filter((c) => c.name === "기타"); const computed=filtered.map(calcChannelMetrics); const totalRevenue=computed.reduce((s,c)=>s + (c.revenue || 0),0); const totalAdSpend=computed.reduce((s,c)=>s + (c.adSpend || 0),0); const totalCommission=computed.reduce((s,c)=>s + c.commission,0); const totalLogistics=computed.reduce((s,c)=>s + (c.logistics || 0),0); const totalReturnCost=computed.reduce((s,c)=>s + (c.returnCost || 0),0); const totalCogs=computed.reduce((s,c)=>s + c.cogs,0); const totalOtherCost=computed.reduce((s,c)=>s + (c.otherCost || 0),0); const totalUnitsSold=computed.reduce((s,c)=>s + (c.unitsSold || 0),0); const totalReviews=computed.reduce((s,c)=>s + (c.reviews || 0),0); const totalOpProfit=totalRevenue - totalCogs - totalAdSpend - totalCommission - totalLogistics - totalReturnCost - totalOtherCost; const opMargin=totalRevenue > 0 ? (totalOpProfit / totalRevenue) * 100:0; const combinedRoas=totalAdSpend > 0 ? (totalRevenue / totalAdSpend) * 100:0; const investment=product.investmentOverride || product.investment || 0; const importQty=product.importQty || 0; const periodROI=investment > 0 ? (totalOpProfit / investment) * 100:0; const annualROI=periodDays > 0 ? periodROI * (365 / periodDays):0; const dailySales=periodDays > 0 ? totalUnitsSold / periodDays:0; const daysToSellMOQ=dailySales > 0 ? importQty / dailySales:Infinity; const annualTurnover=daysToSellMOQ > 0 && isFinite(daysToSellMOQ) ? 365 / daysToSellMOQ:0; const dailyProfit=periodDays > 0 ? totalOpProfit / periodDays:0; const paybackDays=dailyProfit > 0 ? investment / dailyProfit:null; const capitalTurnover=investment > 0 ? totalRevenue / investment:0; const investmentScore=Math.min(100,Math.max(0,Math.round((annualROI / 160) * 100))); const weightedReturnRate=totalUnitsSold > 0
+if (channelMode === "전체" || channelMode === "전체수입") { filtered = channels; }
+else if (channelMode === "쿠팡+네이버") { filtered = channels.filter((c) => c.name === "쿠팡" || c.name === "네이버" || c.name === "스마트스토어" || c.name === "네이버2"); }
+else { filtered = channels.filter((c) => c.name === channelMode || (channelMode === "네이버" && (c.name === "스마트스토어"))); } const computed=filtered.map(calcChannelMetrics); const totalRevenue=computed.reduce((s,c)=>s + (c.revenue || 0),0); const totalAdSpend=computed.reduce((s,c)=>s + (c.adSpend || 0),0); const totalCommission=computed.reduce((s,c)=>s + c.commission,0); const totalLogistics=computed.reduce((s,c)=>s + (c.logistics || 0),0); const totalReturnCost=computed.reduce((s,c)=>s + (c.returnCost || 0),0); const totalCogs=computed.reduce((s,c)=>s + c.cogs,0); const totalOtherCost=computed.reduce((s,c)=>s + (c.otherCost || 0),0); const totalUnitsSold=computed.reduce((s,c)=>s + (c.unitsSold || 0),0); const totalReviews=computed.reduce((s,c)=>s + (c.reviews || 0),0); const totalOpProfit=totalRevenue - totalCogs - totalAdSpend - totalCommission - totalLogistics - totalReturnCost - totalOtherCost; const opMargin=totalRevenue > 0 ? (totalOpProfit / totalRevenue) * 100:0; const combinedRoas=totalAdSpend > 0 ? (totalRevenue / totalAdSpend) * 100:0; const investment=product.investmentOverride || product.investment || 0; const importQty=product.importQty || 0; const periodROI=investment > 0 ? (totalOpProfit / investment) * 100:0; const annualROI=periodDays > 0 ? periodROI * (365 / periodDays):0; const dailySales=periodDays > 0 ? totalUnitsSold / periodDays:0; const daysToSellMOQ=dailySales > 0 ? importQty / dailySales:Infinity; const annualTurnover=daysToSellMOQ > 0 && isFinite(daysToSellMOQ) ? 365 / daysToSellMOQ:0; const dailyProfit=periodDays > 0 ? totalOpProfit / periodDays:0; const paybackDays=dailyProfit > 0 ? investment / dailyProfit:null; const capitalTurnover=investment > 0 ? totalRevenue / investment:0; const investmentScore=Math.min(100,Math.max(0,Math.round((annualROI / 160) * 100))); const weightedReturnRate=totalUnitsSold > 0
 ? computed.reduce((s,c)=>s + (c.returnRate || 0) * (c.unitsSold || 0),0) / totalUnitsSold:0; const weightedRating=totalReviews > 0
 ? computed.reduce((s,c)=>s + (c.avgRating || 0) * (c.reviews || 0),0) / totalReviews:0; const weightedCvr=computed.length > 0
 ? computed.reduce((s,c)=>s + (c.cvr || 0),0) / computed.length:0;
@@ -967,8 +969,18 @@ activeOther.forEach((ch) => {
 return prod;
 },[p, editImportQty, editUnitCost, editLogistics, investmentOverride, calcMode, otherChannels, totalExtraCost]); const  metrics=useMemo(()=>calcProductMetrics(effectiveProduct, periodDays, channelMode), [effectiveProduct, periodDays, channelMode]); const  bench=p.categoryBenchmark || {};
 const availableChannels=useMemo(()=>{
-const names=effectiveProduct.channels.map((c)=> c.name);    const opts=["전체"];
-if (names.includes("쿠팡")) opts.push("쿠팡");    if (names.includes("네이버") || names.includes("스마트스토어")) opts.push("네이버");    if ((names.includes("쿠팡")) && (names.includes("네이버") || names.includes("스마트스토어"))) opts.push("쿠팡+네이버");    if (names.includes("자사몰")) opts.push("자사몰");    if (names.includes("기타")) opts.push("기타");    return opts;
+const channels = effectiveProduct.channels || [];
+const names = [...new Set(channels.map((c) => c.name).filter(Boolean))];
+const opts = ["전체"];
+// 개별 채널 추가 (데이터가 있는 것만)
+names.forEach((n) => { if (!opts.includes(n)) opts.push(n); });
+// 복합 채널: 쿠팡+네이버 (둘 다 있을 때만)
+const hasCoupang = names.includes("쿠팡");
+const hasNaver = names.some((n) => n === "네이버" || n === "스마트스토어" || n === "네이버2");
+if (hasCoupang && hasNaver && names.length > 1) opts.push("쿠팡+네이버");
+// 전체수입 (채널이 2개 이상일 때)
+if (names.length > 1) opts.push("전체수입");
+return opts;
 },[effectiveProduct]); const  dailyData=useMemo(()=>Array.from({ length: 30 },(_, i)=>{
 const base=(metrics.totalRevenue / 30) + Math.sin(i * 0.4) * (metrics.totalRevenue * 0.03) + Math.random() * (metrics.totalRevenue * 0.01);    const opP=base * (metrics.opMargin / 100);    return {
 date: `3/${(i + 1).toString().padStart(2, "0")}`,
@@ -3186,8 +3198,10 @@ function DataSyncPage() {
     setSyncLoading(true);
     setSyncStatus("동기화 중...");
     try {
-      const res = await fetch(gsUrl + "?action=all");
-      const json = await res.json();
+      const res = await fetch(gsUrl + "?action=all", { redirect: "follow" });
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { setSyncStatus("응답 파싱 오류"); addLog("응답: " + text.slice(0, 200), "error"); setSyncLoading(false); return; }
       if (json.success) {
         setGsData(json.data);
         setSyncStatus(`동기화 완료 (${json.timestamp?.slice(0, 19)})`);
@@ -3206,18 +3220,23 @@ function DataSyncPage() {
   // Google Sheets에 데이터 전송
   const postData = async (action, data) => {
     if (!gsUrl) { addLog("Google Sheets URL을 먼저 입력하세요", "error"); return null; }
+    addLog(`전송 시작: ${action} (${data.length}건)...`);
     try {
       const res = await fetch(gsUrl, {
         method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ action, data })
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: action, data: data })
       });
-      const json = await res.json();
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { addLog("응답 파싱 오류: " + text.slice(0, 200), "error"); return null; }
       if (json.success) {
         addLog(`전송 완료: ${json.result?.inserted || 0}건 추가, ${json.result?.updated || 0}건 업데이트`, "success");
+        alert(`✅ 업로드 완료!\n\n추가: ${json.result?.inserted || 0}건\n업데이트: ${json.result?.updated || 0}건`);
         return json;
       } else {
-        addLog("전송 실패: " + json.error, "error");
+        addLog("전송 실패: " + (json.error || JSON.stringify(json)), "error");
         return null;
       }
     } catch (err) {
@@ -3250,6 +3269,41 @@ function DataSyncPage() {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  // 상품원가 데이터 업로드 (엑셀 파일 기반)
+  const uploadProductsData = async () => {
+    if (!uploadPreview) return;
+    const headers = uploadPreview.headers;
+    const findCol = (keywords) => headers.find(h => keywords.some(k => h.includes(k))) || null;
+    const skuCol = findCol(["SKU", "sku", "상품코드", "상품번호", "품번", "재고", "상품번호(스마트스토어)"]);
+    const nameCol = findCol(["상품명", "상품", "품명", "product"]);
+    const catCol = findCol(["카테고리", "분류", "대분류", "category"]);
+    const priceCol = findCol(["판매가", "판매단가", "가격", "price"]);
+    const costCol = findCol(["원가", "단가", "매입가", "cost"]);
+    const logCol = findCol(["물류비", "배송비", "logistics"]);
+    const qtyCol = findCol(["수량", "발주수량", "재고수량", "quantity"]);
+    const invCol = findCol(["투자금액", "투자", "investment"]);
+    const kwCol = findCol(["키워드", "keyword"]);
+    const mfCol = findCol(["제조사", "제조", "manufacturer", "브랜드"]);
+    const imgCol = findCol(["이미지", "이미지URL", "대표이미지", "image"]);
+
+    const rows = uploadPreview.rows.map(r => ({
+      SKU: r[skuCol] || r[nameCol] || "",
+      상품명: r[nameCol] || "",
+      카테고리: r[catCol] || "",
+      판매가: parseInt(String(r[priceCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      원가: parseInt(String(r[costCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      물류비: parseInt(String(r[logCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      발주수량: parseInt(String(r[qtyCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      투자금액: parseInt(String(r[invCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      키워드: r[kwCol] || "",
+      제조사: r[mfCol] || "",
+      이미지URL: r[imgCol] || "",
+    })).filter(r => r.SKU || r.상품명);
+
+    addLog(`상품원가 ${rows.length}건 전송 시작...`);
+    await postData("upsert_products", rows);
   };
 
   // 마켓별 판매 데이터 업로드
@@ -3569,7 +3623,7 @@ function DataSyncPage() {
               </div>
               <div style={{ marginTop: 4, fontSize: 10, color: "#94A3B8" }}>처음 10행 미리보기 (전체 {uploadPreview.rows.length}행)</div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={uploadType === "sales" ? uploadSalesData : uploadType === "ads" ? uploadAdsData : exportProducts}
+                <button onClick={uploadType === "sales" ? uploadSalesData : uploadType === "ads" ? uploadAdsData : uploadProductsData}
                   disabled={!gsUrl} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: gsUrl ? "#4F46E5" : "#94A3B8", color: "#fff", fontSize: 12, fontWeight: 700, cursor: gsUrl ? "pointer" : "not-allowed" }}>
                   📤 Google Sheets에 업로드
                 </button>
