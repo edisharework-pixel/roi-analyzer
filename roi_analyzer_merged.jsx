@@ -3160,6 +3160,502 @@ function ProductListPage() {
     </div>
   );
 }
+const ALL_CHANNELS = ["쿠팡", "네이버", "네이버2", "지마켓", "11번가", "옥션", "자사몰", "기타"];
+function DataSyncPage() {
+  const [gsUrl, setGsUrl] = useState(() => localStorage.getItem("roi_gs_url") || "");
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [gsData, setGsData] = useState(null);
+  const [uploadChannel, setUploadChannel] = useState("쿠팡");
+  const [uploadType, setUploadType] = useState("sales");
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadPreview, setUploadPreview] = useState(null);
+  const [uploadLog, setUploadLog] = useState([]);
+  const [activeSection, setActiveSection] = useState("connect");
+
+  const addLog = (msg, type = "info") => setUploadLog(prev => [{ msg, type, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 50));
+
+  const saveUrl = () => {
+    localStorage.setItem("roi_gs_url", gsUrl);
+    addLog("Google Sheets URL 저장 완료", "success");
+  };
+
+  // Google Sheets에서 전체 데이터 가져오기
+  const fetchAll = async () => {
+    if (!gsUrl) { addLog("Google Sheets URL을 먼저 입력하세요", "error"); return; }
+    setSyncLoading(true);
+    setSyncStatus("동기화 중...");
+    try {
+      const res = await fetch(gsUrl + "?action=all");
+      const json = await res.json();
+      if (json.success) {
+        setGsData(json.data);
+        setSyncStatus(`동기화 완료 (${json.timestamp?.slice(0, 19)})`);
+        addLog(`데이터 수신: 상품 ${json.data.products?.length || 0}건, 판매 ${json.data.sales?.length || 0}건, 광고 ${json.data.ads?.length || 0}건, 마케팅 ${json.data.marketing?.length || 0}건`, "success");
+      } else {
+        setSyncStatus("동기화 실패: " + json.error);
+        addLog("동기화 실패: " + json.error, "error");
+      }
+    } catch (err) {
+      setSyncStatus("연결 실패: " + err.message);
+      addLog("연결 실패: " + err.message, "error");
+    }
+    setSyncLoading(false);
+  };
+
+  // Google Sheets에 데이터 전송
+  const postData = async (action, data) => {
+    if (!gsUrl) { addLog("Google Sheets URL을 먼저 입력하세요", "error"); return null; }
+    try {
+      const res = await fetch(gsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action, data })
+      });
+      const json = await res.json();
+      if (json.success) {
+        addLog(`전송 완료: ${json.result?.inserted || 0}건 추가, ${json.result?.updated || 0}건 업데이트`, "success");
+        return json;
+      } else {
+        addLog("전송 실패: " + json.error, "error");
+        return null;
+      }
+    } catch (err) {
+      addLog("전송 실패: " + err.message, "error");
+      return null;
+    }
+  };
+
+  // 현재 앱 데이터를 Google Sheets로 내보내기
+  const exportProducts = async () => {
+    const rows = PRODUCTS.map(p => ({
+      SKU: p.sku, 상품명: p.name, 카테고리: p.category, 판매가: p.sellingPrice,
+      원가: p.unitCost, 물류비: p.logisticsCostPerUnit, 발주수량: p.importQty, 투자금액: p.investment
+    }));
+    await postData("upsert_products", rows);
+  };
+
+  // 엑셀/CSV 파일 파싱
+  const parseFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        setUploadPreview({ fileName: file.name, rows, headers: Object.keys(rows[0] || {}) });
+        addLog(`파일 파싱 완료: ${file.name} (${rows.length}행, ${Object.keys(rows[0] || {}).length}열)`, "info");
+      } catch (err) {
+        addLog("파일 파싱 오류: " + err.message, "error");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // 마켓별 판매 데이터 업로드
+  const uploadSalesData = async () => {
+    if (!uploadPreview) return;
+    const headers = uploadPreview.headers;
+    // 헤더 자동 매핑 (유연하게)
+    const findCol = (keywords) => headers.find(h => keywords.some(k => h.includes(k))) || null;
+    const dateCol = findCol(["날짜", "date", "주문일", "결제일", "판매일"]);
+    const skuCol = findCol(["SKU", "sku", "상품코드", "상품번호", "품번", "재고"]);
+    const nameCol = findCol(["상품명", "상품", "품명", "product"]);
+    const revCol = findCol(["매출", "판매액", "결제금액", "금액", "revenue", "총매출"]);
+    const qtyCol = findCol(["수량", "판매수량", "판매량", "quantity", "qty"]);
+    const retCol = findCol(["반품", "반품수량", "취소", "환불"]);
+    const commCol = findCol(["수수료", "commission"]);
+    const commRateCol = findCol(["수수료율"]);
+    const reviewCol = findCol(["리뷰", "리뷰수", "review"]);
+    const ratingCol = findCol(["평점", "별점", "rating"]);
+    const retRateCol = findCol(["반품률"]);
+
+    const rows = uploadPreview.rows.map(r => ({
+      날짜: r[dateCol] || new Date().toISOString().slice(0, 10),
+      SKU: r[skuCol] || r[nameCol] || "",
+      채널: uploadChannel,
+      매출: parseInt(String(r[revCol] || "0").replace(/[^0-9.-]/g, "")) || 0,
+      판매수량: parseInt(String(r[qtyCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      반품수량: parseInt(String(r[retCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      수수료: parseInt(String(r[commCol] || "0").replace(/[^0-9.-]/g, "")) || 0,
+      수수료율: parseFloat(r[commRateCol] || "0") || 0,
+      리뷰수: parseInt(r[reviewCol] || "0") || 0,
+      평점: parseFloat(r[ratingCol] || "0") || 0,
+      반품률: parseFloat(r[retRateCol] || "0") || 0,
+    })).filter(r => r.SKU || r.매출 > 0);
+
+    addLog(`${uploadChannel} 판매 데이터 ${rows.length}건 전송 시작...`);
+    await postData("upsert_sales", rows);
+  };
+
+  // 마켓별 광고비 데이터 업로드
+  const uploadAdsData = async () => {
+    if (!uploadPreview) return;
+    const headers = uploadPreview.headers;
+    const findCol = (keywords) => headers.find(h => keywords.some(k => h.includes(k))) || null;
+    const dateCol = findCol(["날짜", "date", "기간"]);
+    const skuCol = findCol(["SKU", "sku", "상품코드", "상품번호", "품번"]);
+    const nameCol = findCol(["상품명", "상품", "품명"]);
+    const spendCol = findCol(["광고비", "비용", "지출", "spend", "cost"]);
+    const impCol = findCol(["노출", "노출수", "impression"]);
+    const clickCol = findCol(["클릭", "클릭수", "click"]);
+    const convCol = findCol(["전환", "전환수", "conversion"]);
+    const cpcCol = findCol(["CPC", "cpc", "클릭단가"]);
+    const ctrCol = findCol(["CTR", "ctr", "클릭률"]);
+    const cvrCol = findCol(["CVR", "cvr", "전환율"]);
+
+    const rows = uploadPreview.rows.map(r => ({
+      날짜: r[dateCol] || new Date().toISOString().slice(0, 10),
+      SKU: r[skuCol] || r[nameCol] || "",
+      채널: uploadChannel,
+      광고비: parseInt(String(r[spendCol] || "0").replace(/[^0-9.-]/g, "")) || 0,
+      노출수: parseInt(String(r[impCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      클릭수: parseInt(String(r[clickCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      전환수: parseInt(String(r[convCol] || "0").replace(/[^0-9]/g, "")) || 0,
+      CPC: parseInt(String(r[cpcCol] || "0").replace(/[^0-9.-]/g, "")) || 0,
+      CTR: parseFloat(r[ctrCol] || "0") || 0,
+      CVR: parseFloat(r[cvrCol] || "0") || 0,
+    })).filter(r => r.SKU || r.광고비 > 0);
+
+    addLog(`${uploadChannel} 광고 데이터 ${rows.length}건 전송 시작...`);
+    await postData("upsert_ads", rows);
+  };
+
+  // Google Sheets 데이터를 앱에 적용 (localStorage로)
+  const applyToApp = () => {
+    if (!gsData) { addLog("먼저 데이터를 동기화하세요", "error"); return; }
+    let applied = 0;
+
+    // 1. 상품원가 적용
+    if (gsData.products?.length > 0) {
+      gsData.products.forEach(p => {
+        const sku = p.SKU;
+        const matched = PRODUCTS.find(pp => pp.sku === sku || pp.name.includes(p.상품명?.slice(0, 8)));
+        if (matched) {
+          const costData = { qty: parseInt(p.발주수량) || matched.importQty, unitCost: parseInt(p.원가) || matched.unitCost, logistics: parseInt(p.물류비) || matched.logisticsCostPerUnit };
+          localStorage.setItem("roi_costlive_" + matched.sku, JSON.stringify(costData));
+          applied++;
+        }
+      });
+      addLog(`상품원가 ${applied}건 적용`, "success");
+    }
+
+    // 2. 판매/광고 데이터 → 채널 데이터로 집계
+    if (gsData.sales?.length > 0 || gsData.ads?.length > 0) {
+      const skuMap = {};
+
+      // 판매 데이터 집계
+      (gsData.sales || []).forEach(s => {
+        const ch = s.채널 || "기타";
+        const sku = s.SKU;
+        if (!skuMap[sku]) skuMap[sku] = {};
+        if (!skuMap[sku][ch]) skuMap[sku][ch] = { name: ch, revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0, returnRate: 0, reviews: 0, avgRating: 0 };
+        skuMap[sku][ch].revenue += Number(s.매출) || 0;
+        skuMap[sku][ch].qty += Number(s.판매수량) || 0;
+        skuMap[sku][ch].commission += Number(s.수수료) || 0;
+        if (s.리뷰수) skuMap[sku][ch].reviews += Number(s.리뷰수) || 0;
+        if (s.평점) skuMap[sku][ch].avgRating = Number(s.평점) || 0;
+        if (s.반품률) skuMap[sku][ch].returnRate = Number(s.반품률) || 0;
+      });
+
+      // 광고 데이터 집계
+      (gsData.ads || []).forEach(a => {
+        const ch = a.채널 || "기타";
+        const sku = a.SKU;
+        if (!skuMap[sku]) skuMap[sku] = {};
+        if (!skuMap[sku][ch]) skuMap[sku][ch] = { name: ch, revenue: 0, qty: 0, cost: 0, adSpend: 0, commission: 0, returnRate: 0, reviews: 0, avgRating: 0 };
+        skuMap[sku][ch].adSpend += Number(a.광고비) || 0;
+      });
+
+      // localStorage에 채널 데이터 저장
+      let chApplied = 0;
+      Object.entries(skuMap).forEach(([sku, channels]) => {
+        const matched = PRODUCTS.find(p => p.sku === sku || p.name.includes(sku?.slice?.(0, 8) || ""));
+        if (matched) {
+          const channelArr = Object.values(channels);
+          localStorage.setItem("roi_channels_" + matched.sku, JSON.stringify(channelArr));
+          chApplied++;
+        }
+      });
+      addLog(`채널별 실적 데이터 ${chApplied}개 상품에 적용`, "success");
+    }
+
+    // 3. 마케팅 비용 적용
+    if (gsData.marketing?.length > 0) {
+      const mktBySku = {};
+      gsData.marketing.forEach(m => {
+        const sku = m.SKU;
+        if (!mktBySku[sku]) mktBySku[sku] = [];
+        mktBySku[sku].push({
+          id: m.ID || Date.now() + Math.random(),
+          category: m.유형 || "other",
+          label: m.항목명 || "",
+          amount: parseInt(m.금액) || 0,
+          expectedRevenue: parseInt(m.기대매출) || 0,
+          startDate: m.시작일 || null,
+          endDate: m.종료일 || null,
+          status: m.상태 || "planned",
+          memo: m.메모 || null
+        });
+      });
+      let mktApplied = 0;
+      Object.entries(mktBySku).forEach(([sku, costs]) => {
+        const matched = PRODUCTS.find(p => p.sku === sku);
+        if (matched) {
+          localStorage.setItem("roi_mktlive_" + matched.sku, JSON.stringify(costs));
+          mktApplied++;
+        }
+      });
+      addLog(`마케팅 비용 ${mktApplied}개 상품에 적용`, "success");
+    }
+
+    addLog("✅ 모든 데이터 적용 완료. 페이지를 새로고침하면 반영됩니다.", "success");
+  };
+
+  const sectionBtns = [
+    { k: "connect", icon: "🔗", label: "연결 설정" },
+    { k: "upload", icon: "📤", label: "마켓별 업로드" },
+    { k: "sync", icon: "🔄", label: "동기화" },
+    { k: "log", icon: "📋", label: "로그" },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg, #6366F1, #8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🔗</div>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#0F172A" }}>데이터 연동</div>
+          <div style={{ fontSize: 12, color: "#94A3B8" }}>Google Sheets 연동 · 마켓별 데이터 업로드 · 자동 동기화</div>
+        </div>
+      </div>
+      {/* 섹션 탭 */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+        {sectionBtns.map(s => (
+          <button key={s.k} onClick={() => setActiveSection(s.k)} style={{ padding: "8px 16px", borderRadius: 8, border: `1.5px solid ${activeSection === s.k ? "#6366F1" : "#E2E8F0"}`, background: activeSection === s.k ? "#EEF2FF" : "#fff", color: activeSection === s.k ? "#4F46E5" : "#64748B", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>{s.icon}</span> {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 연결 설정 */}
+      {activeSection === "connect" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <Card style={{ gridColumn: "1 / -1" }}>
+            <SectionTitle icon="🔗">Google Sheets 연결</SectionTitle>
+            <div style={{ fontSize: 12, color: "#64748B", marginBottom: 12, lineHeight: 1.8 }}>
+              Google Sheets와 연동하여 상품 원가, 판매 데이터, 광고비를 통합 관리합니다.<br />
+              마켓별(쿠팡, 네이버, 지마켓, 11번가 등) 데이터를 업로드하면 자동으로 병합됩니다.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <input value={gsUrl} onChange={e => setGsUrl(e.target.value)} placeholder="Google Apps Script 웹앱 URL (https://script.google.com/...)"
+                style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "var(--mono)", outline: "none" }} />
+              <button onClick={saveUrl} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#4F46E5", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>💾 저장</button>
+              <button onClick={fetchAll} disabled={syncLoading} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: syncLoading ? "#94A3B8" : "#10B981", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncLoading ? "wait" : "pointer", whiteSpace: "nowrap" }}>
+                {syncLoading ? "⏳ 연결중..." : "🔄 연결 테스트"}
+              </button>
+            </div>
+            {syncStatus && <div style={{ fontSize: 11, color: syncStatus.includes("실패") ? "#DC2626" : "#10B981", fontWeight: 600 }}>{syncStatus}</div>}
+          </Card>
+          {/* 설정 가이드 */}
+          <Card>
+            <SectionTitle icon="📖">설정 가이드</SectionTitle>
+            <div style={{ fontSize: 11, color: "#64748B", lineHeight: 2 }}>
+              <b>1.</b> Google Sheets 새 스프레드시트 생성<br />
+              <b>2.</b> 확장 프로그램 → Apps Script<br />
+              <b>3.</b> <code style={{ background: "#F1F5F9", padding: "1px 4px", borderRadius: 3 }}>google-apps-script.gs</code> 코드 붙여넣기<br />
+              <b>4.</b> <code style={{ background: "#F1F5F9", padding: "1px 4px", borderRadius: 3 }}>initSheets()</code> 함수 실행 (헤더 자동 생성)<br />
+              <b>5.</b> 배포 → 새 배포 → 웹 앱<br />
+              <b>6.</b> 실행: 나, 액세스: 모든 사용자<br />
+              <b>7.</b> 배포 URL을 왼쪽에 입력
+            </div>
+          </Card>
+          {/* 시트 구조 */}
+          <Card>
+            <SectionTitle icon="📊">시트 구조 (자동 생성)</SectionTitle>
+            {[
+              { name: "상품원가", desc: "SKU, 상품명, 판매가, 원가, 물류비, 발주수량", color: "#6366F1" },
+              { name: "판매데이터", desc: "날짜, SKU, 채널, 매출, 판매수량, 반품, 수수료", color: "#10B981" },
+              { name: "광고비데이터", desc: "날짜, SKU, 채널, 광고비, 노출, 클릭, 전환", color: "#F59E0B" },
+              { name: "마케팅비용", desc: "SKU, 유형, 항목명, 금액, 기간, 상태, 메모", color: "#EC4899" },
+            ].map(s => (
+              <div key={s.name} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${s.color}30`, background: `${s.color}06`, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: s.color, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A" }}>{s.name}</div>
+                  <div style={{ fontSize: 10, color: "#94A3B8" }}>{s.desc}</div>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+
+      {/* 마켓별 업로드 */}
+      {activeSection === "upload" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <Card style={{ gridColumn: "1 / -1" }}>
+            <SectionTitle icon="📤">마켓별 데이터 업로드</SectionTitle>
+            <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14 }}>
+              각 마켓에서 다운로드한 판매/광고 엑셀 파일을 업로드하면 자동으로 채널 구분되어 Google Sheets에 저장됩니다.
+              <br />동일한 날짜+SKU+채널 데이터는 자동으로 업데이트(중복 방지)됩니다.
+            </div>
+            {/* 채널 선택 */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#0F172A", marginBottom: 6 }}>채널 선택</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {ALL_CHANNELS.map(ch => {
+                  const colors = { "쿠팡": "#E44D2E", "네이버": "#03C75A", "네이버2": "#1EC800", "지마켓": "#6B9900", "11번가": "#FF0000", "옥션": "#FF6F00", "자사몰": "#6366F1", "기타": "#64748B" };
+                  const c = colors[ch] || "#64748B";
+                  return (
+                    <button key={ch} onClick={() => setUploadChannel(ch)} style={{ padding: "6px 14px", borderRadius: 20, border: `2px solid ${uploadChannel === ch ? c : "#E2E8F0"}`, background: uploadChannel === ch ? c + "12" : "#fff", color: uploadChannel === ch ? c : "#64748B", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{ch}</button>
+                  );
+                })}
+              </div>
+            </div>
+            {/* 데이터 유형 선택 */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#0F172A", marginBottom: 6 }}>데이터 유형</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  { k: "sales", l: "💰 판매 데이터", desc: "매출, 판매수량, 반품, 수수료" },
+                  { k: "ads", l: "📢 광고 데이터", desc: "광고비, 노출, 클릭, 전환" },
+                  { k: "products", l: "📦 상품 원가", desc: "상품명, 원가, 물류비, 수량" },
+                ].map(t => (
+                  <button key={t.k} onClick={() => setUploadType(t.k)} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `2px solid ${uploadType === t.k ? "#4F46E5" : "#E2E8F0"}`, background: uploadType === t.k ? "#EEF2FF" : "#fff", cursor: "pointer", textAlign: "left" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: uploadType === t.k ? "#4F46E5" : "#0F172A" }}>{t.l}</div>
+                    <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 2 }}>{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* 파일 업로드 */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+              <label style={{ padding: "10px 20px", borderRadius: 10, border: "1.5px dashed #C7D2FE", background: "#EEF2FF", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#4F46E5", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                📤 엑셀/CSV 파일 선택
+                <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) { setUploadFile(e.target.files[0]); parseFile(e.target.files[0]); e.target.value = ""; } }} />
+              </label>
+              {uploadPreview && (
+                <>
+                  <span style={{ fontSize: 11, color: "#64748B" }}>📄 {uploadPreview.fileName} ({uploadPreview.rows.length}행)</span>
+                  <button onClick={() => { setUploadPreview(null); setUploadFile(null); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #FECACA", background: "#FEF2F2", fontSize: 10, cursor: "pointer", color: "#DC2626" }}>삭제</button>
+                </>
+              )}
+            </div>
+          </Card>
+
+          {/* 미리보기 */}
+          {uploadPreview && (
+            <Card style={{ gridColumn: "1 / -1" }}>
+              <SectionTitle icon="👁️">업로드 미리보기 — {uploadChannel} · {uploadType === "sales" ? "판매" : uploadType === "ads" ? "광고" : "상품원가"}</SectionTitle>
+              <div style={{ overflowX: "auto", maxHeight: 300, borderRadius: 8, border: "1px solid #E2E8F0" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ background: "#F8FAFC", position: "sticky", top: 0 }}>
+                      {uploadPreview.headers.slice(0, 12).map((h, i) => (
+                        <th key={i} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: "#64748B", whiteSpace: "nowrap", fontSize: 10, borderBottom: "2px solid #E2E8F0" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadPreview.rows.slice(0, 10).map((r, ri) => (
+                      <tr key={ri} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                        {uploadPreview.headers.slice(0, 12).map((h, ci) => (
+                          <td key={ci} style={{ padding: "5px 10px", color: "#334155", whiteSpace: "nowrap", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}>{String(r[h] || "").slice(0, 30)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 4, fontSize: 10, color: "#94A3B8" }}>처음 10행 미리보기 (전체 {uploadPreview.rows.length}행)</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button onClick={uploadType === "sales" ? uploadSalesData : uploadType === "ads" ? uploadAdsData : exportProducts}
+                  disabled={!gsUrl} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: gsUrl ? "#4F46E5" : "#94A3B8", color: "#fff", fontSize: 12, fontWeight: 700, cursor: gsUrl ? "pointer" : "not-allowed" }}>
+                  📤 Google Sheets에 업로드
+                </button>
+                <span style={{ fontSize: 10, color: "#94A3B8", alignSelf: "center" }}>채널: <b style={{ color: "#0F172A" }}>{uploadChannel}</b> · 유형: <b style={{ color: "#0F172A" }}>{uploadType === "sales" ? "판매" : uploadType === "ads" ? "광고" : "상품원가"}</b> · {uploadPreview.rows.length}건</span>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* 동기화 */}
+      {activeSection === "sync" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <Card style={{ gridColumn: "1 / -1" }}>
+            <SectionTitle icon="🔄">데이터 동기화</SectionTitle>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button onClick={fetchAll} disabled={syncLoading || !gsUrl} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#3B82F6", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {syncLoading ? "⏳ 동기화중..." : "📥 Google Sheets → 불러오기"}
+              </button>
+              <button onClick={exportProducts} disabled={!gsUrl} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#10B981", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                📤 현재 상품 → Google Sheets
+              </button>
+              <button onClick={applyToApp} disabled={!gsData} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: gsData ? "#8B5CF6" : "#94A3B8", color: "#fff", fontSize: 12, fontWeight: 700, cursor: gsData ? "pointer" : "not-allowed" }}>
+                ✅ 불러온 데이터 앱에 적용
+              </button>
+            </div>
+          </Card>
+
+          {/* 동기화 현황 */}
+          {gsData && (
+            <>
+              <Card>
+                <SectionTitle icon="📊">Google Sheets 현황</SectionTitle>
+                {[
+                  { label: "상품원가", count: gsData.products?.length || 0, color: "#6366F1" },
+                  { label: "판매데이터", count: gsData.sales?.length || 0, color: "#10B981" },
+                  { label: "광고비데이터", count: gsData.ads?.length || 0, color: "#F59E0B" },
+                  { label: "마케팅비용", count: gsData.marketing?.length || 0, color: "#EC4899" },
+                ].map(s => (
+                  <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F1F5F9" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{s.label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: s.color, fontFamily: "var(--mono)" }}>{s.count.toLocaleString()}건</span>
+                  </div>
+                ))}
+              </Card>
+              <Card>
+                <SectionTitle icon="📡">채널별 데이터 현황</SectionTitle>
+                {(() => {
+                  const chMap = {};
+                  (gsData.sales || []).forEach(s => { const ch = s.채널 || "기타"; chMap[ch] = (chMap[ch] || 0) + 1; });
+                  const channels = Object.entries(chMap).sort((a, b) => b[1] - a[1]);
+                  if (channels.length === 0) return <div style={{ fontSize: 12, color: "#94A3B8", padding: 10 }}>판매 데이터가 없습니다</div>;
+                  return channels.map(([ch, cnt]) => (
+                    <div key={ch} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F1F5F9" }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{ch}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#4F46E5", fontFamily: "var(--mono)" }}>{cnt.toLocaleString()}건</span>
+                    </div>
+                  ));
+                })()}
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 로그 */}
+      {activeSection === "log" && (
+        <Card>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <SectionTitle icon="📋">작업 로그</SectionTitle>
+            <button onClick={() => setUploadLog([])} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#fff", fontSize: 10, cursor: "pointer", color: "#64748B" }}>지우기</button>
+          </div>
+          <div style={{ maxHeight: 500, overflowY: "auto" }}>
+            {uploadLog.length === 0 && <div style={{ fontSize: 12, color: "#94A3B8", padding: 20, textAlign: "center" }}>로그가 없습니다</div>}
+            {uploadLog.map((log, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, padding: "6px 8px", borderBottom: "1px solid #F8FAFC", fontSize: 11 }}>
+                <span style={{ color: "#94A3B8", fontFamily: "var(--mono)", fontSize: 10, flexShrink: 0 }}>{log.time}</span>
+                <span style={{ color: log.type === "error" ? "#DC2626" : log.type === "success" ? "#059669" : "#334155" }}>{log.msg}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
 function ForecastPage() {
   const { navigate, setSelectedProduct } = useApp();
   const [periodDays, setPeriodDays] = useState(180);
@@ -3463,7 +3959,7 @@ JSON만 응답: [{"excelName":"이름","matchedSku":"P001","confidence":85}]
   const ctx=useMemo(() =>({
     route, navigate: setRoute, selectedProduct, setSelectedProduct,
   }), [route, selectedProduct]); const  NAV=[
-    { key: "dashboard", icon: "📊", label: "대시보드" },{ key: "product", icon: "📦", label: "상품 상세 분석" },{ key: "ai", icon: "🧠", label: "AI 투자 의견" },{ key: "forecast", icon: "🔬", label: "예측 vs 실적" },];
+    { key: "dashboard", icon: "📊", label: "대시보드" },{ key: "product", icon: "📦", label: "상품 상세 분석" },{ key: "ai", icon: "🧠", label: "AI 투자 의견" },{ key: "forecast", icon: "🔬", label: "예측 vs 실적" },{ key: "datasync", icon: "🔗", label: "데이터 연동" },];
   return(
     <AppCtx.Provider value={ctx}>
       <div style={{ fontFamily: "'Pretendard',-apple-system,sans-serif", background: "#F1F5F9", minHeight: "100vh", color: "#0F172A", "--mono": "'JetBrains Mono',monospace", display: "flex" }}>
@@ -3502,6 +3998,7 @@ JSON만 응답: [{"excelName":"이름","matchedSku":"P001","confidence":85}]
           {route === "product" && (selectedProduct ? <ProductDetailPage key={selectedProduct.sku} /> : <ProductListPage />)}
           {route === "ai" && <AiOpinionPage />}
           {route === "forecast" && <ForecastPage />}
+          {route === "datasync" && <DataSyncPage />}
           {/* 설정 모달 */}
           {showSettings && (
             <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSettings(false)}>
